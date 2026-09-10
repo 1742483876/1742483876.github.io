@@ -13,240 +13,426 @@
       --mute: #5e6e66;
       --paper: #efe8dc;
       --sand: #e4d9c8;
+      --panel: #f7f1e7;
       --sea: #2a6b5a;
       --ember: #c45a2c;
       --line: rgba(26, 36, 32, 0.12);
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
       font-family: "Source Sans 3", "PingFang SC", system-ui, sans-serif;
-      color: var(--ink);
       background: var(--paper);
-      line-height: 1.55;
+      color: var(--ink);
+      min-height: 100vh;
       -webkit-font-smoothing: antialiased;
     }
 
-    .hero {
-      position: relative;
-      min-height: 92vh;
-      display: flex;
-      align-items: flex-end;
-      overflow: hidden;
+    /* lock */
+    .lock-screen {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       background:
-        radial-gradient(ellipse 90% 70% at 80% 10%, rgba(42, 107, 90, 0.35), transparent 55%),
-        radial-gradient(ellipse 60% 50% at 10% 90%, rgba(196, 90, 44, 0.22), transparent 50%),
-        linear-gradient(160deg, #1c2e28 0%, #121c18 48%, #1a2621 100%);
+        radial-gradient(ellipse 80% 60% at 75% 15%, rgba(42,107,90,0.32), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 15% 85%, rgba(196,90,44,0.2), transparent 50%),
+        linear-gradient(160deg, #1c2e28, #121c18 48%, #1a2621);
       color: #efe8dc;
+      padding: 24px;
     }
-    .hero::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(239,232,220,0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(239,232,220,0.045) 1px, transparent 1px);
-      background-size: 56px 56px;
-      mask-image: radial-gradient(ellipse 65% 55% at 50% 35%, #000, transparent);
-      animation: drift 32s linear infinite;
+    .lock-screen.hidden { display: none; }
+    .lock-brand {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(3rem, 12vw, 4.5rem);
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      line-height: 0.95;
+      margin-bottom: 12px;
+      text-align: center;
     }
-    @keyframes drift {
-      from { transform: translateY(0); }
-      to { transform: translateY(56px); }
+    .lock-brand em { font-style: italic; color: #e8a06a; font-weight: 500; }
+    .lock-sub { color: rgba(239,232,220,0.68); margin-bottom: 28px; font-size: 0.98rem; }
+    .lock-form { width: min(300px, 100%); display: flex; flex-direction: column; gap: 10px; }
+    .lock-input {
+      width: 100%; padding: 13px 14px; border-radius: 2px;
+      border: 1px solid rgba(239,232,220,0.28); background: rgba(0,0,0,0.25);
+      color: #efe8dc; font-size: 1.05rem; outline: none; letter-spacing: 0.12em; text-align: center;
     }
-    .hero-inner {
-      position: relative;
-      width: 100%;
-      max-width: 920px;
-      margin: 0 auto;
-      padding: 72px 24px 64px;
+    .lock-input:focus { border-color: #e8a06a; }
+    .lock-btn {
+      padding: 12px; border: none; border-radius: 2px; background: #e8a06a;
+      color: #1a2420; font-weight: 600; font-size: 0.98rem; cursor: pointer;
+    }
+    .lock-error { color: #f0a090; font-size: 0.85rem; min-height: 1.2em; text-align: center; }
+    .lock-hint { margin-top: 16px; font-size: 0.78rem; color: rgba(239,232,220,0.42); }
+
+    .app.hidden { display: none; }
+    .top {
+      position: sticky; top: 0; z-index: 50;
+      padding: 14px 20px 12px;
+      background: rgba(239,232,220,0.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+    .top-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 12px;
     }
     .brand {
       font-family: "Fraunces", Georgia, serif;
-      font-size: clamp(4rem, 14vw, 7rem);
-      font-weight: 600;
-      letter-spacing: -0.04em;
-      line-height: 0.92;
-      margin-bottom: 22px;
-      opacity: 0;
-      animation: rise 0.85s cubic-bezier(0.22,1,0.36,1) 0.08s forwards;
+      font-size: 1.45rem; font-weight: 600; letter-spacing: -0.02em;
     }
-    .brand em {
-      font-style: italic;
-      font-weight: 500;
-      color: #e8a06a;
+    .brand em { font-style: italic; color: var(--ember); }
+    .search {
+      width: 100%; max-width: 420px; margin: 0 auto;
+      display: block; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 2px;
+      background: var(--panel); font-size: 0.95rem; outline: none;
     }
-    .lead {
-      max-width: 26rem;
-      font-size: 1.1rem;
-      color: rgba(239, 232, 220, 0.78);
-      margin-bottom: 32px;
-      opacity: 0;
-      animation: rise 0.85s cubic-bezier(0.22,1,0.36,1) 0.22s forwards;
-    }
-    .cta-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      opacity: 0;
-      animation: rise 0.85s cubic-bezier(0.22,1,0.36,1) 0.38s forwards;
-    }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(16px); }
-      to { opacity: 1; transform: none; }
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      padding: 12px 20px;
-      font-weight: 600;
-      font-size: 0.95rem;
-      text-decoration: none;
-      border-radius: 2px;
-      transition: transform 0.25s cubic-bezier(0.22,1,0.36,1);
-    }
-    .btn:hover { transform: translateY(-2px); }
-    .btn-main { background: #e8a06a; color: var(--ink); }
-    .btn-ghost {
-      border: 1px solid rgba(239,232,220,0.35);
-      color: #efe8dc;
-    }
+    .search:focus { border-color: var(--sea); }
 
-    .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
-    section { padding: 72px 0; border-bottom: 1px solid var(--line); }
-    .eyebrow {
-      font-size: 0.72rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--sea);
-      font-weight: 600;
-      margin-bottom: 10px;
+    .tabs {
+      display: flex; gap: 8px; padding: 12px 20px 0;
+      overflow-x: auto;
     }
-    h2 {
+    .tab {
+      flex: 0 0 auto; padding: 8px 14px; border: 1px solid var(--line);
+      background: var(--panel); border-radius: 999px; font-size: 0.88rem;
+      color: var(--mute); cursor: pointer; font-weight: 500;
+    }
+    .tab.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+    .mods {
+      display: flex; gap: 8px; padding: 12px 20px; overflow-x: auto;
+      border-bottom: 1px solid var(--line);
+    }
+    .mod {
+      flex: 0 0 auto; padding: 7px 12px; border: 1px solid transparent;
+      background: transparent; border-radius: 2px; font-size: 0.88rem;
+      color: var(--mute); cursor: pointer; font-weight: 500;
+    }
+    .mod.active { background: var(--sand); color: var(--ink); }
+    .mods.hidden { display: none; }
+
+    .wrap { max-width: 880px; margin: 0 auto; padding: 20px 20px 72px; }
+    .group-title {
       font-family: "Fraunces", Georgia, serif;
-      font-size: clamp(1.8rem, 4vw, 2.4rem);
-      font-weight: 550;
-      letter-spacing: -0.02em;
-      margin-bottom: 12px;
+      font-size: 1.25rem; font-weight: 550; margin: 28px 0 12px;
+      letter-spacing: -0.01em;
     }
-    .lede { color: var(--mute); max-width: 34rem; margin-bottom: 36px; }
-
-    .rooms {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1px;
-      background: var(--line);
-      border: 1px solid var(--line);
+    .group-title:first-child { margin-top: 4px; }
+    .list { display: flex; flex-direction: column; gap: 8px; }
+    a.item {
+      display: grid; grid-template-columns: 72px 1fr; gap: 12px;
+      padding: 14px 14px; background: var(--panel); border: 1px solid var(--line);
+      border-radius: 2px; text-decoration: none; color: inherit;
+      transition: background 0.2s, border-color 0.2s;
     }
-    a.room {
-      display: block;
-      padding: 28px 24px;
-      background: var(--paper);
-      text-decoration: none;
-      color: inherit;
-      transition: background 0.25s;
-      min-height: 160px;
+    a.item:hover { background: #fffaf2; border-color: var(--sea); }
+    .item-date {
+      font-size: 0.78rem; color: var(--mute); font-variant-numeric: tabular-nums;
+      padding-top: 3px;
     }
-    a.room:hover { background: var(--sand); }
-    .room .kicker {
-      font-size: 0.72rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--ember);
-      font-weight: 600;
-      margin-bottom: 10px;
+    .item-title { font-weight: 600; font-size: 0.98rem; line-height: 1.35; margin-bottom: 4px; }
+    .item-desc { font-size: 0.88rem; color: var(--mute); line-height: 1.4; }
+    .item-tag {
+      display: inline-block; margin-top: 8px; font-size: 0.72rem; font-weight: 600;
+      padding: 2px 8px; background: rgba(42,107,90,0.12); color: var(--sea); border-radius: 2px;
     }
-    .room h3 {
-      font-family: "Fraunces", Georgia, serif;
-      font-size: 1.45rem;
-      font-weight: 550;
-      margin-bottom: 8px;
-    }
-    .room p { color: var(--mute); font-size: 0.95rem; }
-
-    .topics {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .topic {
-      padding: 10px 14px;
-      background: var(--sand);
-      font-size: 0.92rem;
-      color: var(--ink);
-      text-decoration: none;
-      border-radius: 2px;
-      transition: background 0.2s;
-    }
-    .topic:hover { background: #d9cdb8; }
-
-    footer {
-      padding: 40px 24px 64px;
-      text-align: center;
-      color: var(--mute);
-      font-size: 0.88rem;
-    }
-    footer a { color: var(--sea); }
-
-    @media (max-width: 640px) {
-      .rooms { grid-template-columns: 1fr; }
-      .hero { min-height: 85vh; }
+    .empty { text-align: center; color: var(--mute); padding: 48px 12px; }
+    .foot {
+      margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line);
+      font-size: 0.82rem; color: var(--mute); text-align: center;
     }
   </style>
 </head>
 <body>
-  <header class="hero">
-    <div class="hero-inner">
-      <h1 class="brand">Ian<br /><em>Home</em></h1>
-      <p class="lead">旅行、学习、生活工具，都收在这里。手机也能直接打开。</p>
-      <div class="cta-row">
-        <a class="btn btn-main" href="https://1742483876.github.io/my-notes/">打开知识库 →</a>
-        <a class="btn btn-ghost" href="https://1742483876.github.io/1t-playbook/">1T 训练手册</a>
-      </div>
+  <div class="lock-screen" id="lockScreen">
+    <div class="lock-brand">Ian<br /><em>Home</em></div>
+    <div class="lock-sub">输入密码进入</div>
+    <div class="lock-form">
+      <input class="lock-input" type="password" id="lockInput" placeholder="••••" inputmode="numeric" autocomplete="off" />
+      <div class="lock-error" id="lockError"></div>
+      <button class="lock-btn" type="button" id="lockBtn">进入</button>
     </div>
-  </header>
+    <div class="lock-hint">验证后 30 天内免登录</div>
+  </div>
 
-  <section id="rooms">
+  <div class="app hidden" id="app">
+    <div class="top">
+      <div class="top-row">
+        <div class="brand">Ian <em>Home</em></div>
+      </div>
+      <input class="search" type="search" id="searchInput" placeholder="搜索标题或内容…" autocomplete="off" />
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" type="button" data-view="module">按模块</button>
+      <button class="tab" type="button" data-view="date">按日期</button>
+    </div>
+    <div class="mods" id="modBar">
+      <button class="mod active" type="button" data-mod="all">全部</button>
+      <button class="mod" type="button" data-mod="work">工作</button>
+      <button class="mod" type="button" data-mod="study">学习</button>
+      <button class="mod" type="button" data-mod="life">生活</button>
+      <button class="mod" type="button" data-mod="money">理财</button>
+    </div>
+
     <div class="wrap">
-      <p class="eyebrow">Spaces</p>
-      <h2>两个入口就够了</h2>
-      <p class="lede">根站是客厅；笔记库与训练手册都有密码。含内网细节的工作原版仍在公司 OA Pages。</p>
-      <div class="rooms">
-        <a class="room" href="https://1742483876.github.io/my-notes/">
-          <div class="kicker">Notes · 需密码</div>
-          <h3>Knot 知识库</h3>
-          <p>旅行攻略、健身、投资、量化、大模型学习——分类检索，手机友好。</p>
-        </a>
-        <a class="room" href="https://1742483876.github.io/1t-playbook/">
-          <div class="kicker">Playbook · 需密码</div>
-          <h3>1T 训练手册</h3>
-          <p>预训练 / 中训练入门与 topic 地图。脱敏教学版，适合手机复习。</p>
-        </a>
-      </div>
+      <div id="content"></div>
+      <p class="foot">手机可收藏本页 · 内容更新后刷新即可</p>
     </div>
-  </section>
+  </div>
 
-  <section id="topics">
-    <div class="wrap">
-      <p class="eyebrow">Quick links</p>
-      <h2>常看的几类</h2>
-      <p class="lede">点进知识库后用侧边分类即可；这里只是提醒你库里有什么。</p>
-      <div class="topics">
-        <a class="topic" href="https://1742483876.github.io/my-notes/">旅行出行</a>
-        <a class="topic" href="https://1742483876.github.io/my-notes/">科技学习</a>
-        <a class="topic" href="https://1742483876.github.io/my-notes/">量化交易</a>
-        <a class="topic" href="https://1742483876.github.io/my-notes/">投资理财</a>
-        <a class="topic" href="https://1742483876.github.io/my-notes/">健身颜值</a>
-        <a class="topic" href="https://1742483876.github.io/my-notes/">生活工具</a>
+  <script>
+  const AUTH_KEY = 'ian_home_auth_v1';
+  const VALID_DAYS = 30;
+  const PWD_HASH = '17f13a'; // 3250
+
+  const MODULES = {
+    work:  { label: '工作', color: '#c45a2c' },
+    study: { label: '学习', color: '#2a6b5a' },
+    life:  { label: '生活', color: '#2f5c78' },
+    money: { label: '理财', color: '#9e7a30' },
+  };
+
+  // module: work | study | life | money
+  const ITEMS = [
+    {
+      id: '1t',
+      title: '1T 训练手册（脱敏教学版）',
+      desc: '预训练 / 中训练入门、各 topic 地图、训练万亿参数模型的步骤与常见坑。',
+      module: 'work',
+      date: '2026-09-10',
+      url: '/1t-playbook/',
+    },
+    {
+      id: 'invest',
+      title: '投资理财指南 — 美股开户 & 券商入金',
+      desc: '美股开户买 SGOV + 盈立证券入金攻略。',
+      module: 'money',
+      date: '2026-03-23',
+      url: '/my-notes/投资理财指南.html',
+    },
+    {
+      id: 'quant',
+      title: '量化交易全攻略 — 入门·策略·实盘',
+      desc: '量化入门 + 策略详解 + 选股大盘。',
+      module: 'money',
+      date: '2026-04-07',
+      url: '/my-notes/量化交易全攻略.html',
+    },
+    {
+      id: 'travel-set',
+      title: '旅行出行合集 — 规划·行程·指南',
+      desc: '2026 旅行规划、周末游、潜水与出行指南。',
+      module: 'life',
+      date: '2026-04-05',
+      url: '/my-notes/旅行出行合集.html',
+    },
+    {
+      id: 'bohol',
+      title: '薄荷岛攻略 — 五一菲律宾跳岛',
+      desc: '墨宝沙丁鱼、鲸鲨、锡基霍尔、薄荷岛深潜。',
+      module: 'life',
+      date: '2026-05-01',
+      url: '/my-notes/薄荷岛攻略.html',
+    },
+    {
+      id: 'islands',
+      title: '五一海岛攻略 — 薄荷岛 & 巴厘岛',
+      desc: '两套海岛方案对比。',
+      module: 'life',
+      date: '2026-04-18',
+      url: '/my-notes/五一海岛攻略.html',
+    },
+    {
+      id: 'fitness',
+      title: '健身完全手册 — 训练·饮食·颜值',
+      desc: '分化训练、减脂饮食与护肤。',
+      module: 'life',
+      date: '2026-03-30',
+      url: '/my-notes/健身完全手册.html',
+    },
+    {
+      id: 'media',
+      title: '影音收藏 — 视频 & 音乐',
+      desc: '纪录片、电影与歌单。',
+      module: 'life',
+      date: '2026-03-30',
+      url: '/my-notes/影音收藏.html',
+    },
+    {
+      id: 'gadgets',
+      title: '电子产品资产管理',
+      desc: '日均/次均成本与吃灰检测。',
+      module: 'life',
+      date: '2026-03-30',
+      url: '/my-notes/电子产品记账.html',
+    },
+    {
+      id: 'cars',
+      title: '汽车品牌速查手册',
+      desc: '从 BBA 到超跑的品牌与车系速记。',
+      module: 'life',
+      date: '2026-03-30',
+      url: '/my-notes/汽车品牌科普.html',
+    },
+    {
+      id: 'dream',
+      title: '梦境日记',
+      desc: '星空主题梦境记录。',
+      module: 'life',
+      date: '2026-03-30',
+      url: '/my-notes/梦境日记.html',
+    },
+    {
+      id: 'ai-chip',
+      title: 'AI 算力四大赛道龙头作战图',
+      desc: '芯片·存储·光模块·算力租赁主线梳理。',
+      module: 'study',
+      date: '2026-06-03',
+      url: '/my-notes/AI算力四大赛道龙头.html',
+    },
+    {
+      id: 'tech',
+      title: '科技学习 — 大模型全景 & 数据工程',
+      desc: '多模态、数据工程与面试指南。',
+      module: 'study',
+      date: '2026-04-07',
+      url: '/my-notes/科技学习.html',
+    },
+    {
+      id: 'train',
+      title: '大模型训练全景 — 预训练·后训练·架构',
+      desc: '从预训练到 RLHF 的流程拆解。',
+      module: 'study',
+      date: '2026-04-29',
+      url: '/my-notes/大模型训练全景.html',
+    },
+    {
+      id: 'oss-llm',
+      title: '开源大模型全景对比',
+      desc: '主流开源模型横评。',
+      module: 'study',
+      date: '2026-04-27',
+      url: '/my-notes/开源大模型全景对比.html',
+    },
+  ];
+
+  let view = 'module'; // module | date
+  let mod = 'all';
+  let q = '';
+
+  function hashPwd(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return Math.abs(h).toString(16).slice(0, 6);
+  }
+  function checkAuth() {
+    try {
+      const raw = localStorage.getItem(AUTH_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (data.hash !== PWD_HASH) return false;
+      return Date.now() - data.ts < VALID_DAYS * 24 * 60 * 60 * 1000;
+    } catch { return false; }
+  }
+  function unlock() {
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ hash: PWD_HASH, ts: Date.now() }));
+    document.getElementById('lockScreen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    render();
+  }
+  function verifyPassword() {
+    const input = document.getElementById('lockInput');
+    const error = document.getElementById('lockError');
+    const pwd = input.value.trim();
+    if (!pwd) { error.textContent = '请输入密码'; return; }
+    if (hashPwd(pwd) === PWD_HASH) { error.textContent = ''; unlock(); }
+    else { error.textContent = '密码错误'; input.value = ''; input.focus(); }
+  }
+
+  function filtered() {
+    const qq = q.trim().toLowerCase();
+    return ITEMS.filter((it) => {
+      const okMod = view !== 'module' || mod === 'all' || it.module === mod;
+      const okQ = !qq || it.title.toLowerCase().includes(qq) || (it.desc || '').toLowerCase().includes(qq);
+      return okMod && okQ;
+    });
+  }
+
+  function itemCard(it) {
+    const m = MODULES[it.module];
+    return `<a class="item" href="${it.url}">
+      <div class="item-date">${it.date.slice(5)}</div>
+      <div>
+        <div class="item-title">${it.title}</div>
+        <div class="item-desc">${it.desc || ''}</div>
+        <span class="item-tag" style="background:${m.color}22;color:${m.color}">${m.label}</span>
       </div>
-    </div>
-  </section>
+    </a>`;
+  }
 
-  <footer>
-    <p>
-      <a href="https://github.com/1742483876">github.com/1742483876</a>
-      · 个人站，可在手机浏览器收藏
-    </p>
-  </footer>
+  function render() {
+    const box = document.getElementById('content');
+    const items = filtered();
+    document.getElementById('modBar').classList.toggle('hidden', view !== 'module');
+
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">没有匹配的内容</div>';
+      return;
+    }
+
+    if (view === 'module') {
+      const order = ['work', 'study', 'life', 'money'];
+      const used = order.filter((k) => items.some((i) => i.module === k));
+      box.innerHTML = used.map((k) => {
+        const list = items.filter((i) => i.module === k)
+          .sort((a, b) => b.date.localeCompare(a.date));
+        return `<h2 class="group-title">${MODULES[k].label}</h2>
+          <div class="list">${list.map(itemCard).join('')}</div>`;
+      }).join('');
+      return;
+    }
+
+    // by date
+    const byDate = {};
+    items.forEach((it) => {
+      (byDate[it.date] ||= []).push(it);
+    });
+    const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+    box.innerHTML = dates.map((d) => {
+      const list = byDate[d].sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+      return `<h2 class="group-title">${d}</h2>
+        <div class="list">${list.map(itemCard).join('')}</div>`;
+    }).join('');
+  }
+
+  document.getElementById('lockBtn').addEventListener('click', verifyPassword);
+  document.getElementById('lockInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') verifyPassword();
+  });
+  document.querySelectorAll('.tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      view = btn.dataset.view;
+      render();
+    });
+  });
+  document.querySelectorAll('.mod').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mod').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      mod = btn.dataset.mod;
+      render();
+    });
+  });
+  document.getElementById('searchInput').addEventListener('input', (e) => {
+    q = e.target.value;
+    render();
+  });
+
+  if (checkAuth()) unlock();
+  </script>
 </body>
 </html>
