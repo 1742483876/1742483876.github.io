@@ -548,57 +548,13 @@
       section { padding: 64px 0; }
       .hero { min-height: 85vh; }
     }
-  
-    /* password lock */
-    .lock-screen {
-      position: fixed; inset: 0; z-index: 200;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      background:
-        radial-gradient(ellipse 80% 60% at 70% 20%, rgba(31,111,91,0.28), transparent 55%),
-        linear-gradient(165deg, #1a2e24, #0f1a14 50%, #152018);
-      color: #f3efe6; padding: 24px;
-    }
-    .lock-screen.hidden { display: none; }
-    .lock-mark {
-      font-family: "Instrument Serif", Georgia, serif;
-      font-size: 2.8rem; letter-spacing: -0.03em; margin-bottom: 8px;
-    }
-    .lock-mark em { font-style: italic; color: #e8a06a; }
-    .lock-sub { color: rgba(243,239,230,0.7); margin-bottom: 28px; font-size: 0.95rem; }
-    .lock-form { width: min(320px, 100%); display: flex; flex-direction: column; gap: 10px; }
-    .lock-input {
-      width: 100%; padding: 12px 14px; border-radius: 2px;
-      border: 1px solid rgba(243,239,230,0.28); background: rgba(0,0,0,0.25);
-      color: #f3efe6; font-size: 1rem; outline: none;
-    }
-    .lock-input:focus { border-color: #e8a06a; }
-    .lock-btn {
-      padding: 12px; border: none; border-radius: 2px; background: #e8a06a;
-      color: #0f1a14; font-weight: 600; cursor: pointer;
-    }
-    .lock-error { color: #f0a090; font-size: 0.85rem; min-height: 1.2em; }
-    .lock-hint { margin-top: 14px; font-size: 0.78rem; color: rgba(243,239,230,0.45); }
-    .desense-banner {
-      max-width: var(--max); margin: 0 auto; padding: 10px 24px;
-      font-size: 0.85rem; color: var(--mute);
-      border-bottom: 1px solid var(--line); background: rgba(196,92,38,0.06);
-    }
 </style>
 </head>
 <body>
-<div class="lock-screen" id="lockScreen">
-  <div class="lock-mark">1T <em>Playbook</em></div>
-  <div class="lock-sub">脱敏教学版 · 请输入密码</div>
-  <div class="lock-form">
-    <input class="lock-input" type="password" id="lockInput" placeholder="密码" autocomplete="off">
-    <div class="lock-error" id="lockError"></div>
-    <button class="lock-btn" type="button" id="lockBtn">解锁</button>
-  </div>
-  <div class="lock-hint">验证后 30 天内免登录 · 仅供个人复习</div>
+<div class="desense-banner" style="max-width:1080px;margin:0 auto;padding:10px 24px;font-size:0.85rem;color:#5a6a5f;border-bottom:1px solid rgba(15,26,20,0.12);background:rgba(196,92,38,0.06)">
+  脱敏教学版 · <a href="/" style="color:#1f6f5b">← Ian Home</a>
 </div>
-<div class="desense-banner" id="desenseBanner" style="display:none">
-  本页为脱敏教学版：已去掉内网链接与内部项目代号，保留方法论与可复述结论。返回 <a href="https://1742483876.github.io/">Ian Home</a>
-</div>
+
 
   <div class="grain" aria-hidden="true"></div>
 
@@ -1252,44 +1208,5 @@
     document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
   </script>
 
-<script>
-(function() {
-  const AUTH_KEY = 'ian_home_auth_v1';
-  const VALID_DAYS = 30;
-  const PWD_HASH = '17f13a'; // 3250
-  function hashPwd(s) {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-    return Math.abs(h).toString(16).slice(0, 6);
-  }
-  function checkAuth() {
-    try {
-      const raw = localStorage.getItem(AUTH_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      if (data.hash !== PWD_HASH) return false;
-      return (Date.now() - data.ts) < VALID_DAYS * 24 * 60 * 60 * 1000;
-    } catch { return false; }
-  }
-  function unlock() {
-    localStorage.setItem(AUTH_KEY, JSON.stringify({ hash: PWD_HASH, ts: Date.now() }));
-    document.getElementById('lockScreen').classList.add('hidden');
-    document.getElementById('desenseBanner').style.display = 'block';
-  }
-  if (checkAuth()) unlock();
-  window.verifyPassword = function() {
-    const input = document.getElementById('lockInput');
-    const error = document.getElementById('lockError');
-    const pwd = input.value.trim();
-    if (!pwd) { error.textContent = '请输入密码'; return; }
-    if (hashPwd(pwd) === PWD_HASH) { unlock(); error.textContent = ''; }
-    else { error.textContent = '密码错误'; input.value = ''; input.focus(); }
-  };
-  document.getElementById('lockBtn').addEventListener('click', window.verifyPassword);
-  document.getElementById('lockInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') window.verifyPassword();
-  });
-})();
-</script>
 </body>
 </html>
