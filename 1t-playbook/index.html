@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>1T Playbook · 脱敏教学版</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0f1a14;
+      --ink-2: #1c2b22;
+      --paper: #f3efe6;
+      --paper-2: #e8e2d4;
+      --mist: #c9d2c4;
+      --line: rgba(15, 26, 20, 0.12);
+      --mute: #5a6a5f;
+      --accent: #c45c26;
+      --accent-2: #1f6f5b;
+      --accent-soft: rgba(196, 92, 38, 0.12);
+      --teal-soft: rgba(31, 111, 91, 0.12);
+      --warn: #9a3412;
+      --ok: #166534;
+      --max: 1080px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      line-height: 1.65;
+      font-size: 17px;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent-2); text-underline-offset: 3px; }
+    img { max-width: 100%; display: block; }
+
+    /* atmosphere */
+    .grain {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      opacity: 0.04;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    /* nav */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(12px);
+      background: rgba(243, 239, 230, 0.82);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+      color: var(--ink);
+    }
+    .brand em { font-style: italic; color: var(--accent); }
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+      list-style: none;
+      font-size: 0.86rem;
+      font-weight: 500;
+    }
+    .nav-links a {
+      color: var(--mute);
+      text-decoration: none;
+      transition: color 0.2s var(--ease);
+    }
+    .nav-links a:hover { color: var(--ink); }
+
+    /* hero */
+    .hero {
+      position: relative;
+      min-height: 92vh;
+      display: flex;
+      align-items: flex-end;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 80% 60% at 70% 20%, rgba(31, 111, 91, 0.28), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 15% 80%, rgba(196, 92, 38, 0.18), transparent 50%),
+        linear-gradient(165deg, #1a2e24 0%, #0f1a14 45%, #152018 100%);
+      color: #f3efe6;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(243,239,230,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(243,239,230,0.04) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black, transparent);
+      animation: gridDrift 28s linear infinite;
+    }
+    @keyframes gridDrift {
+      from { transform: translateY(0); }
+      to { transform: translateY(64px); }
+    }
+    .hero-inner {
+      position: relative;
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 80px 24px 72px;
+      width: 100%;
+    }
+    .hero-brand {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: clamp(3.4rem, 9vw, 6.2rem);
+      line-height: 0.95;
+      letter-spacing: -0.03em;
+      margin-bottom: 28px;
+      opacity: 0;
+      animation: rise 0.9s var(--ease) 0.1s forwards;
+    }
+    .hero-brand em {
+      font-style: italic;
+      color: #e8a06a;
+    }
+    .hero-lead {
+      max-width: 34rem;
+      font-size: 1.15rem;
+      color: rgba(243, 239, 230, 0.78);
+      margin-bottom: 36px;
+      opacity: 0;
+      animation: rise 0.9s var(--ease) 0.28s forwards;
+    }
+    .hero-cta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      opacity: 0;
+      animation: rise 0.9s var(--ease) 0.45s forwards;
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: none; }
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-radius: 2px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: transform 0.25s var(--ease), background 0.25s;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-primary {
+      background: #e8a06a;
+      color: var(--ink);
+    }
+    .btn-ghost {
+      background: transparent;
+      color: #f3efe6;
+      border: 1px solid rgba(243, 239, 230, 0.35);
+    }
+
+    /* sections */
+    .wrap {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    section {
+      padding: 88px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+      font-weight: 500;
+    }
+    h2 {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: clamp(2rem, 4.5vw, 2.85rem);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+      font-weight: 400;
+    }
+    h3 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .lede {
+      max-width: 40rem;
+      color: var(--mute);
+      font-size: 1.05rem;
+      margin-bottom: 40px;
+    }
+
+    /* two-col compare */
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+    .compare > div {
+      background: var(--paper);
+      padding: 28px 24px;
+    }
+    .compare .tag {
+      display: inline-block;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      margin-bottom: 14px;
+      font-weight: 500;
+    }
+    .tag-pre { background: var(--teal-soft); color: var(--accent-2); }
+    .tag-mid { background: var(--accent-soft); color: var(--accent); }
+    .compare ul {
+      margin-top: 14px;
+      padding-left: 1.1rem;
+      color: var(--mute);
+      font-size: 0.95rem;
+    }
+    .compare li { margin-bottom: 6px; }
+    .compare strong { color: var(--ink); font-weight: 600; }
+
+    /* roadmap */
+    .roadmap {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      position: relative;
+    }
+    .roadmap::before {
+      content: "";
+      position: absolute;
+      left: 19px;
+      top: 12px;
+      bottom: 12px;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--accent-2), var(--accent));
+      opacity: 0.35;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 20px;
+      padding: 28px 0;
+      position: relative;
+    }
+    .step-num {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--ink);
+      color: var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+    }
+    .step-body {
+      padding-top: 4px;
+    }
+    .step-title {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.55rem;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .step-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .pill {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      padding: 3px 9px;
+      background: var(--paper-2);
+      color: var(--mute);
+      border-radius: 2px;
+    }
+    .pill-accent { background: var(--accent-soft); color: var(--accent); }
+    .pill-teal { background: var(--teal-soft); color: var(--accent-2); }
+    .step p { color: var(--mute); max-width: 46rem; }
+    .insight {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-left: 3px solid var(--accent);
+      background: rgba(196, 92, 38, 0.06);
+      font-size: 0.92rem;
+    }
+    .insight .label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      display: block;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .insight.ok { border-color: var(--accent-2); background: rgba(31, 111, 91, 0.06); }
+    .insight.ok .label { color: var(--accent-2); }
+    .insight.warn { border-color: var(--warn); background: rgba(154, 52, 18, 0.06); }
+    .insight.warn .label { color: var(--warn); }
+
+    /* needs grid */
+    .needs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+    .need {
+      background: var(--paper);
+      padding: 24px 20px;
+      transition: background 0.3s var(--ease);
+    }
+    .need:hover { background: var(--paper-2); }
+    .need .ico {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      color: var(--accent-2);
+      margin-bottom: 10px;
+    }
+    .need p {
+      font-size: 0.9rem;
+      color: var(--mute);
+      margin-top: 6px;
+    }
+
+    /* topics */
+    .topic-rail {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 12px;
+      margin-bottom: 28px;
+      scrollbar-width: thin;
+    }
+    .topic-tab {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      background: transparent;
+      padding: 8px 14px;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--mute);
+      border-radius: 2px;
+      transition: all 0.2s var(--ease);
+    }
+    .topic-tab:hover { color: var(--ink); border-color: var(--ink); }
+    .topic-tab.active {
+      background: var(--ink);
+      color: var(--paper);
+      border-color: var(--ink);
+    }
+    .topic-panel {
+      display: none;
+      animation: fadeIn 0.35s var(--ease);
+    }
+    .topic-panel.active { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: none; }
+    }
+    .topic-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 12px 20px;
+      margin-bottom: 16px;
+    }
+    .topic-head h3 {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.8rem;
+      font-weight: 400;
+      margin: 0;
+    }
+    .topic-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 28px;
+      margin-top: 20px;
+    }
+    .topic-grid ul {
+      padding-left: 1.15rem;
+      color: var(--mute);
+      font-size: 0.95rem;
+    }
+    .topic-grid li { margin-bottom: 8px; }
+    .quote-box {
+      padding: 20px;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.25rem;
+      line-height: 1.4;
+      font-style: italic;
+    }
+    .quote-box cite {
+      display: block;
+      margin-top: 12px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.7rem;
+      font-style: normal;
+      letter-spacing: 0.04em;
+      color: rgba(243, 239, 230, 0.55);
+    }
+
+    /* analogy */
+    .analogy {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 8px;
+    }
+    .analogy-item {
+      padding: 20px 16px;
+      background: var(--paper-2);
+      border-radius: 2px;
+    }
+    .analogy-item .phase {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .analogy-item h3 {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-weight: 400;
+      font-size: 1.35rem;
+    }
+
+    /* insights strip */
+    .insight-list {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .insight-row {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 20px;
+      align-items: start;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .insight-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .insight-n {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 2rem;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    /* checklist */
+    .checklist {
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+    .checklist li {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 14px 16px;
+      background: var(--paper-2);
+      font-size: 0.95rem;
+    }
+    .checklist .box {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--accent-2);
+      margin-top: 2px;
+      border-radius: 2px;
+    }
+
+    /* footer */
+    footer {
+      padding: 48px 24px 72px;
+      color: var(--mute);
+      font-size: 0.88rem;
+      text-align: center;
+    }
+    footer .brand {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 1.5rem;
+    }
+
+    /* reveal */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+    }
+    .reveal.in {
+      opacity: 1;
+      transform: none;
+    }
+
+    @media (max-width: 860px) {
+      .compare, .needs, .topic-grid, .analogy { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+      .insight-row { grid-template-columns: 48px 1fr; }
+      section { padding: 64px 0; }
+      .hero { min-height: 85vh; }
+    }
+  
+    /* password lock */
+    .lock-screen {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background:
+        radial-gradient(ellipse 80% 60% at 70% 20%, rgba(31,111,91,0.28), transparent 55%),
+        linear-gradient(165deg, #1a2e24, #0f1a14 50%, #152018);
+      color: #f3efe6; padding: 24px;
+    }
+    .lock-screen.hidden { display: none; }
+    .lock-mark {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 2.8rem; letter-spacing: -0.03em; margin-bottom: 8px;
+    }
+    .lock-mark em { font-style: italic; color: #e8a06a; }
+    .lock-sub { color: rgba(243,239,230,0.7); margin-bottom: 28px; font-size: 0.95rem; }
+    .lock-form { width: min(320px, 100%); display: flex; flex-direction: column; gap: 10px; }
+    .lock-input {
+      width: 100%; padding: 12px 14px; border-radius: 2px;
+      border: 1px solid rgba(243,239,230,0.28); background: rgba(0,0,0,0.25);
+      color: #f3efe6; font-size: 1rem; outline: none;
+    }
+    .lock-input:focus { border-color: #e8a06a; }
+    .lock-btn {
+      padding: 12px; border: none; border-radius: 2px; background: #e8a06a;
+      color: #0f1a14; font-weight: 600; cursor: pointer;
+    }
+    .lock-error { color: #f0a090; font-size: 0.85rem; min-height: 1.2em; }
+    .lock-hint { margin-top: 14px; font-size: 0.78rem; color: rgba(243,239,230,0.45); }
+    .desense-banner {
+      max-width: var(--max); margin: 0 auto; padding: 10px 24px;
+      font-size: 0.85rem; color: var(--mute);
+      border-bottom: 1px solid var(--line); background: rgba(196,92,38,0.06);
+    }
+</style>
+</head>
+<body>
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-mark">1T <em>Playbook</em></div>
+  <div class="lock-sub">脱敏教学版 · 请输入密码</div>
+  <div class="lock-form">
+    <input class="lock-input" type="password" id="lockInput" placeholder="密码" autocomplete="off">
+    <div class="lock-error" id="lockError"></div>
+    <button class="lock-btn" type="button" id="lockBtn">解锁</button>
+  </div>
+  <div class="lock-hint">验证后 30 天内免登录 · 仅供个人复习</div>
+</div>
+<div class="desense-banner" id="desenseBanner" style="display:none">
+  本页为脱敏教学版：已去掉内网链接与内部项目代号，保留方法论与可复述结论。返回 <a href="https://1742483876.github.io/">Ian Home</a>
+</div>
+
+  <div class="grain" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top">1T <em>Playbook</em></a>
+      <ul class="nav-links">
+        <li><a href="#basics">先搞懂</a></li>
+        <li><a href="#roadmap">路线图</a></li>
+        <li><a href="#needs">你需要什么</a></li>
+        <li><a href="#topics">各 Topic</a></li>
+        <li><a href="#insights">周报 Insight</a></li>
+        <li><a href="#checklist">开干清单</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-inner">
+      <h1 class="hero-brand">1T<br /><em>Playbook</em></h1>
+      <p class="hero-lead">
+        把你当成第一次接触大模型训练的人：预训练和中训练分别干什么、各 topic 怎么配、
+        训练一个万亿参数模型该按什么顺序做——以及公开可复述的方法论与常见坑。本页为脱敏教学版。
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#roadmap">从第一步开始 →</a>
+        <a class="btn btn-ghost" href="#basics">先搞懂两个词</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- BASICS -->
+  <section id="basics">
+    <div class="wrap reveal">
+      <p class="eyebrow">01 · 先搞懂两件事</p>
+      <h2>预训练 vs 中训练<br />一句话：先学世界，再学干活</h2>
+      <p class="lede">
+        可以把模型想象成一个学生。预训练是「从幼儿园读到高中」——大量泛读，建立语言、知识和基本推理；
+        中训练是「进大学选专业」——用更干净、更任务向的数据，把能力往 Agent、长文、代码、STEM 等方向拧。
+      </p>
+
+      <div class="compare">
+        <div>
+          <span class="tag tag-pre">Pretrain · 一阶段</span>
+          <h3>目标：把「世界」装进模型</h3>
+          <p style="color:var(--mute);font-size:0.95rem;">
+            海量网页、书籍、论文。策略从「一刀切过滤」转向「轻质量过滤、重采样」：
+            STEM 上采、热门学科下采、长尾簇用幂律插值。
+          </p>
+          <ul>
+            <li><strong>数据量级</strong>：万亿 token 级，追求覆盖与多样性</li>
+            <li><strong>上下文</strong>：通常较短（几 K～几十 K）</li>
+            <li><strong>核心动作</strong>：抓取 → 解析 → 去重 → 质量分层 → 采样配比</li>
+            <li><strong>你在周报里看到的</strong>：一阶段数据、Evaluation &amp; Scaling ladder</li>
+          </ul>
+        </div>
+        <div>
+          <span class="tag tag-mid">Midtrain · 中训练</span>
+          <h3>目标：把「干活」练到手上</h3>
+          <p style="color:var(--mute);font-size:0.95rem;">
+            在预训练底座上，用高质量、高密度的 topic 数据继续训。
+            上下文从 32k → 256k → 1M 递进，配比是零和博弈——加长文就要挤 STEM。
+          </p>
+          <ul>
+            <li><strong>数据量级</strong>：百亿～几万亿 token（典型中训练 256K 合版可到约数 T 文本（量级示意））</li>
+            <li><strong>上下文</strong>：32k / 256k / 1M，能力随窗口变难</li>
+            <li><strong>核心动作</strong>：按 topic 造数据 → 合版消融 → 长跑 derisk → 定版</li>
+            <li><strong>你在周报里看到的</strong>：代码 / STEM / 知识 / 长文 / Agent / VLM / 合版</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="analogy" style="margin-top:40px;">
+        <div class="analogy-item">
+          <div class="phase">阶段 0</div>
+          <h3>底座预训练</h3>
+          <p style="color:var(--mute);font-size:0.9rem;margin-top:8px;">学会说话、认世界</p>
+        </div>
+        <div class="analogy-item">
+          <div class="phase">阶段 1–2</div>
+          <h3>Midtrain 32k</h3>
+          <p style="color:var(--mute);font-size:0.9rem;margin-top:8px;">短上下文专业课</p>
+        </div>
+        <div class="analogy-item">
+          <div class="phase">阶段 3</div>
+          <h3>Midtrain 256k</h3>
+          <p style="color:var(--mute);font-size:0.9rem;margin-top:8px;">长文档与 Agent 主战场</p>
+        </div>
+        <div class="analogy-item">
+          <div class="phase">阶段 4</div>
+          <h3>Midtrain 1M</h3>
+          <p style="color:var(--mute);font-size:0.9rem;margin-top:8px;">补全量扫描与长链检索</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section id="roadmap">
+    <div class="wrap reveal">
+      <p class="eyebrow">02 · 假如目标是 1T 参数模型</p>
+      <h2>一步一步该怎么做</h2>
+      <p class="lede">
+        参数量 1T（万亿）决定的是「模型有多大」；真正决定效果的，是数据配方、上下文递进、和评测是否可信。
+        下面按常见「正式版模型 + 中训练合版」节奏，写成可执行顺序。
+      </p>
+
+      <div class="roadmap">
+        <article class="step">
+          <div class="step-num">01</div>
+          <div class="step-body">
+            <h3 class="step-title">先定「能力目标」，再定数据</h3>
+            <div class="step-meta">
+              <span class="pill">产品需求</span>
+              <span class="pill">评测清单</span>
+            </div>
+            <p>
+              写清楚：这个 1T 模型要赢哪些 bench（SWE、MRCR、SimpleQA、STEM、多模态……），
+              以及不能掉哪些（纯文本、多语言）。没有目标，配比就是拍脑袋。
+            </p>
+            <div class="insight">
+              <span class="label">周报对照 · Evaluation &amp; Scaling</span>
+              小 ladder（22B 级）只能显著区分 U=40B→80B 这种量级的重复度差异。
+              评测分辨率不够时，你看不到策略好坏——先问「当前评测能不能测出差别」。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">02</div>
+          <div class="step-body">
+            <h3 class="step-title">一阶段预训练：堆覆盖，但别一刀切</h3>
+            <div class="step-meta">
+              <span class="pill pill-teal">Pretrain</span>
+              <span class="pill">网页 / 书 / 论文</span>
+              <span class="pill">去重 · 采样</span>
+            </div>
+            <p>
+              把互联网语料做成训练 bin：解析 → MinHash / 语义 / SAE 去重 → 质量分层 → 按学科幂律采样。
+              STEM 偏向上采；占比过高的热门学科下采；太稀疏的长尾别硬上采。
+            </p>
+            <div class="insight ok">
+              <span class="label">周报对照 · 一阶段</span>
+              SAE 去重比 BGE 语义去重 +1.1pp，因为它自带质量筛选且对文档长度中立。
+              但 LiveCodeBench 提醒你：竞赛代码靠「同类模板反复曝光」强化——全局统一阈值去重会超额删掉算法簇。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">03</div>
+          <div class="step-body">
+            <h3 class="step-title">用小模型 ladder 做数据策略实验</h3>
+            <div class="step-meta">
+              <span class="pill">小 ladder</span>
+              <span class="pill">val loss</span>
+              <span class="pill">伴生 SFT</span>
+            </div>
+            <p>
+              别一上来就在 1T 上试配方。用可控小模型（常用小 ladder（数十亿激活量级））跑消融：改 U（unique support）、改配比、改去重强度，
+              看 validation loss–compute 曲线斜率。结论稳定后再放大。
+            </p>
+            <div class="insight warn">
+              <span class="label">周报对照 · 关键坑</span>
+              ICL 和 SFT 经常打架（Midtrain Exp4：MRCR 上 ICL +22pp 但 SFT −11pp）。
+              团队已定调：后续以 SFT / val loss 为主，小尺寸 0/1-shot ICL 不导向真实能力。
+              另外 500B decay 可能暴露不出风险——中训练合版 在 1.1T 后才和 midtrain3 趋势分离。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">04</div>
+          <div class="step-body">
+            <h3 class="step-title">按 Topic 造中训练数据（可并行）</h3>
+            <div class="step-meta">
+              <span class="pill pill-accent">Midtrain</span>
+              <span class="pill">代码 · STEM · 知识 · 长文 · Agent · VLM</span>
+            </div>
+            <p>
+              每个 topic 是一条独立生产线：自然数据精筛 + 合成/改写 + 质量模型 + 专项 bench。
+              负责人分开，但最后要进同一张合版表。细节见下方「各 Topic」一节。
+            </p>
+            <div class="insight">
+              <span class="label">周报对照 · Midtrain 合版</span>
+              配比是零和的：定版合版把长文浓度拉高后，Agent 与生产长文 bench 明显受益（量级示意）；
+              数学/科学/逻辑持平微负，因为 MATH/STEM 只换了 CoT、题池被挤占。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">05</div>
+          <div class="step-body">
+            <h3 class="step-title">合版消融：一张表决定命运</h3>
+            <div class="step-meta">
+              <span class="pill">合版多轮消融</span>
+              <span class="pill">32k 再 256k</span>
+            </div>
+            <p>
+              把各 topic 数据按比例拼成合版，逐版调：下采某类 userlog、上采 STEM、补自然长文、压 replay……
+              每一版只改一两件事，用伴生 SFT + domain bench 看涨跌。定版合版交付量级可达数 T 文本。
+            </p>
+            <div class="insight ok">
+              <span class="label">周报对照 · 消融结论</span>
+              删掉金融/法律/医疗垂类后垂类评测居然持平、知识微正；logicqa 对逻辑是跷跷板却挤占 web；
+              小语种掐尖收益不大。→ 很多「看起来该上」的垂类数据，合版里未必划算。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">06</div>
+          <div class="step-body">
+            <h3 class="step-title">上下文递进：32k → 256k → 1M</h3>
+            <div class="step-meta">
+              <span class="pill">多模态上下文 stage 节奏</span>
+              <span class="pill">长文专项</span>
+            </div>
+            <p>
+              按你们正式版节奏：先短后长。256k 是 Agent + 长文主战场；1M 补「有序定位 / 全量覆盖」——
+              因为评测显示 64k–1M 各档从 6.4 掉到 0.5，模型会漏检、提前停、误判信息不存在。
+            </p>
+            <div class="insight">
+              <span class="label">周报对照 · 长文</span>
+              Nextlong 从单主题召回改成多主题联合召回（真实长文是多主题交织的）；
+              DRP 用 arxiv/wiki 拓扑反向合成研究轨迹；keychain 用 UUID 链强迫模型先「找到问题本身」。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">07</div>
+          <div class="step-body">
+            <h3 class="step-title">长跑 derisk，再上 1T 正式训练</h3>
+            <div class="step-meta">
+              <span class="pill">constLR</span>
+              <span class="pill">每 400B 伴生 SFT</span>
+              <span class="pill">扩到生产规模</span>
+            </div>
+            <p>
+              在接近生产的设置下把合版跑长：观察 Agent / 长文是否持续 scale，有没有 ICL 假崩塌（合成数据初期模型 confuse 要不要输出 CoT）。
+              确认趋势后，用同一配方把模型规模拉到 1T，算力、并行策略、checkpoint 与数据管线一并升级。
+            </p>
+            <div class="insight warn">
+              <span class="label">周报对照 · 基础设施坑</span>
+              H 卡镜像 2606 会导致 multi-epoch 从第 3 epoch 起 train loss 异常上升 → 用 2605.post3 / 2606.post3；
+              Ceph 挂载未 fsync 会静默把 bin 里 token 写成 0 → grad-norm spike。大模型训练，基建翻车等于白烧卡。
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-num">08</div>
+          <div class="step-body">
+            <h3 class="step-title">后训练对齐（SFT / RL）接棒</h3>
+            <div class="step-meta">
+              <span class="pill">班车 SFT</span>
+              <span class="pill">指令遵循</span>
+            </div>
+            <p>
+              Midtrain 交付的是「底座能力」；对话风格、工具调用格式、安全对齐靠后训练。
+              Midtrain 阶段就要和后训练班车对齐评测协议，否则你看到的涨跌没法归因。
+            </p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- NEEDS -->
+  <section id="needs">
+    <div class="wrap reveal">
+      <p class="eyebrow">03 · 你需要准备什么</p>
+      <h2>开训前的物资清单</h2>
+      <p class="lede">没有这些，1T 只是一个数字。下面按「人 / 数据 / 算力 / 评测 / 工程」五类列清楚。</p>
+
+      <div class="needs">
+        <div class="need">
+          <div class="ico">01 · 人</div>
+          <h3>Topic Owner 矩阵</h3>
+          <p>代码、STEM、知识、长文、Agent、VLM、合版各有人盯。合版 owner 拍板配比；评测 owner 保证 ICL/SFT 协议一致。</p>
+        </div>
+        <div class="need">
+          <div class="ico">02 · 数据</div>
+          <h3>一阶段池 + Topic 池</h3>
+          <p>预训练语料（网页/书/PDF）、权威垂类源、回流 userlog、合成管线（改写 / Nextlong / STEM 出题 / PR 相关文件）。</p>
+        </div>
+        <div class="need">
+          <div class="ico">03 · 算力</div>
+          <h3>小 ladder + 生产集群</h3>
+          <p>小模型消融集群日常跑；正式 1T 需要大规模并行。合版长训要预留足够长的训练窗口，短训看不到的风险往往要跑到万亿 token 后才暴露。</p>
+        </div>
+        <div class="need">
+          <div class="ico">04 · 评测</div>
+          <h3>Bench + Val Loss + 伴生 SFT</h3>
+          <p>Domain bench、生产 bench、能力打标评测、validation set。能力粒度打标（VLM Data Probe）比只堆 benchmark 更管用。</p>
+        </div>
+        <div class="need">
+          <div class="ico">05 · 工程</div>
+          <h3>解析 · 去重 · Bin · 镜像</h3>
+          <p>PDF/网页解析、commit 管线、泄题检测、dataloader、稳定镜像与存储 fsync。管线 bug 会直接污染万亿 token。</p>
+        </div>
+        <div class="need">
+          <div class="ico">06 · 节奏</div>
+          <h3>Topic → 合版 → 定版 → 生产</h3>
+          <p>对齐你们四阶段：多模态上下文 stage1 纯 VLM → stage2-32k → stage3-256k → stage4-1M。每阶段三拍：交付、合版、定版。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOPICS -->
+  <section id="topics">
+    <div class="wrap reveal">
+      <p class="eyebrow">04 · 各 Topic 是什么</p>
+      <h2>中训练的「专业课」地图</h2>
+      <p class="lede">点开每个 topic：它解决什么问题、怎么做、周报里最该记住的一条。</p>
+
+      <div class="topic-rail" role="tablist">
+        <button class="topic-tab active" data-tab="code" type="button">02 代码</button>
+        <button class="topic-tab" data-tab="stem" type="button">03 STEM</button>
+        <button class="topic-tab" data-tab="knowledge" type="button">05 知识</button>
+        <button class="topic-tab" data-tab="long" type="button">06 长文</button>
+        <button class="topic-tab" data-tab="agent" type="button">07 Agent</button>
+        <button class="topic-tab" data-tab="vlm" type="button">08 VLM</button>
+        <button class="topic-tab" data-tab="merge" type="button">09 合版</button>
+        <button class="topic-tab" data-tab="phase1" type="button">一阶段</button>
+      </div>
+
+      <div class="topic-panel active" id="panel-code">
+        <div class="topic-head">
+          <h3>代码 · 自然代码比样板题更值钱</h3>
+          <span class="pill pill-accent">commit / PR / release</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          教模型读真实改动：commit 消息 + diff、PR 描述 + 相关文件、release note。
+          目标直接对齐 SWE 一类「改仓库」能力。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>修管线：latin1 乱码、二进制识别、非源码打标前置</li>
+              <li>抓取前用 commit msg 规则过滤（你们合过滤 44.6%，低质率 88.6%）</li>
+              <li>质量模型打分（coherence、任务分类 20 类）</li>
+              <li>PR 拼相关文件：一跳依赖 + 文件 BM25 + 消息 BM25</li>
+              <li>commit↔PR 按 sha 去重（留存约 89%，比 minhash 狠得多）</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「补上下文的收益远大于再筛一层质量：相关文件让 SWE Verified +1.93pp、pass@3 +4pp；再分层筛选反而退化。」
+            <cite>来源 · Midtrain 专项 02-代码 / P1 周报 CodePretrain</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-stem">
+        <div class="topic-head">
+          <h3>STEM · 筛选策略会系统性误伤学科知识</h3>
+          <span class="pill pill-accent">自然精筛 + 高难度合成</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          一边把网页/书/论文里的数理化生捞准，一边合成 PhD 级难题。注意：通用「高推理价值」阈值会丢掉分类学这类核心知识。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>粗召回（学科）→ 精筛；按源+学科让专家 review Save/Drop</li>
+              <li>数据库结构化条目改写成连贯自然语言</li>
+              <li>物化：论文 → Synth → Answer/Judge → Filter</li>
+              <li>数学 Hard：小模型解 5 次，任一失败即 Hard</li>
+              <li>幻觉检测压到 &lt;1%；合版时 STEM 只换 CoT 不够，要扩题池</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「生物书籍 Drop 端漏召 42%——因为策略硬性要求推理价值≥高，而形态描述天然不满足，却是学科核心。」
+            <cite>来源 · Midtrain 专项 03-STEM</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-knowledge">
+        <div class="topic-head">
+          <h3>知识 · 去重可能删掉权威、留下低质副本</h3>
+          <span class="pill pill-accent">垂类知识 · 百科 · 改写</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          金融/法律/医疗权威源重建、维基 talk/pageinfo 质量分层、阅读理解与 Meta Prompt 改写。目标抬 SimpleQA 类事实能力。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>从原始爬取池回捞权威站，重解析（曾一次新增 216B token）</li>
+              <li>法律：裁判说理作高价值 token 打分；医疗：病程记录串联 7 表</li>
+              <li>知识点扩增（回流 bad case）→ 大池召回 → 多风格改写</li>
+              <li>垂类合版消融：未必涨垂类 bench，却可能挤占通用知识</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「去重把权威版本判成重复删掉，留下低质副本——金融/法律/医疗三个垂域都中了这个招。」
+            <cite>来源 · Midtrain 专项 05-知识</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-long">
+        <div class="topic-head">
+          <h3>长文 · 窗口变长，能力会先塌再补</h3>
+          <span class="pill pill-accent">Nextlong · ACC · DRP · 1M</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          教模型在超长上下文里定位、全量覆盖、状态追踪。256k 主战场；1M 补短板。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>Nextlong：多主题联合召回拼长文（别只按单主题）</li>
+              <li>ACC：检索 / 多文档 QA / 状态追踪，从回流轨迹重组</li>
+              <li>DRP：用引用拓扑反向合成 Deep Research 轨迹</li>
+              <li>1M：有序定位（timeline）+ 全量覆盖（multi-query / keychain）</li>
+              <li>注意 baseline 越强，合板增益空间越窄（更小模型 → 更大一点的 ladder）</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「64k–1M 三档得分从 6.4 掉到 0.5：漏检、提前停、误判信息不存在——这是造 1M 数据的动机。」
+            <cite>来源 · Midtrain 专项 06-长文</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-agent">
+        <div class="topic-head">
+          <h3>Agent · 同源轨迹不一定该去重</h3>
+          <span class="pill pill-accent">userlog / traj</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          用真实工具调用轨迹教模型做事。处理回流时，同一 session 的不同加工方式可能互补。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>按 session / query minhash 做内部去重</li>
+              <li>与其他团队同源数据：先做对照实验再决定是否 dedup</li>
+              <li>合版里 Agent 占比高（常与 code 合计 60%+），要单独长跑 derisk</li>
+              <li>交付定版后盯 SWE / Terminal / Search Agent 族</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「重复的是来源，不是内容：jadeqt+jura 混合在近一半 生产 bench 维度最好。」
+            <cite>来源 · Midtrain 专项 07-Agent</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-vlm">
+        <div class="topic-head">
+          <h3>VLM · 图文一起训，文本别被拖垮</h3>
+          <span class="pill pill-accent">多模态 midtrain</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          视觉 STEM、OCR 长文档、GUI Agent、带图轨迹。用 Data Probe 把评测下沉到能力粒度，对齐存量数据缺口。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>先纯 VLM stage，再 LLM+VLM 混训（你们 stage1→2）</li>
+              <li>加图比例控制在一定范围（周报：约 20% 内不影响纯文本）</li>
+              <li>能力打标：暴露 Grounding 过简、多图缺失等缺口</li>
+              <li>few-shot 小模型波动大 → 先建多模态 val loss</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「存量 Grounding 65.9% 只是类别指代，评测里动作/序数/关系却占 25.6%——数据分布和考卷对不上。」
+            <cite>来源 · P1 周报 VLM</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-merge">
+        <div class="topic-head">
+          <h3>合版 · 数据工作的实质是分配</h3>
+          <span class="pill pill-accent">配比表 · 消融 · 定版</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          总 token 预算固定时，加任何 topic 都在挤别的。合版 owner 用实验把「想要的涨点」变成可交付的 OnePage。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>定 baseline → Exp 逐版改一两项</li>
+              <li>同时看伴生 ICL、伴生 SFT、val loss、domain bench</li>
+              <li>对「假崩塌」做 few-shot derisk（合成数据 confuse CoT）</li>
+              <li>长跑确认 scale 后再交付生产 bin</li>
+              <li>回流合成数据清洗其他模型 special token</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「定版合版：Agent 与长文明显受益；数学科学逻辑微负——符合「只换 CoT、被挤占」的预期。」
+            <cite>来源 · Midtrain 专项 09-合版 / P1 周报 Midtrain</cite>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-panel" id="panel-phase1">
+        <div class="topic-head">
+          <h3>一阶段 · 采样策略取代一刀切过滤</h3>
+          <span class="pill pill-teal">Pretrain 主线</span>
+        </div>
+        <p style="color:var(--mute);max-width:40rem;">
+          1T 模型的「世界观」主要在这里形成。中训练再猛，也补不回一阶段覆盖面的巨大缺口。
+        </p>
+        <div class="topic-grid">
+          <div>
+            <h3>怎么做</h3>
+            <ul>
+              <li>轻质量过滤 + 重采样（幂律 γ≈0.73）</li>
+              <li>分 domain 去重阈值，保护靠重复强化的能力</li>
+              <li>长尾簇：覆盖一半语义簇可能只占 17% 文档——性价比高</li>
+              <li>警惕：后期 loss 降最快的 Top10% 里，约 66% 是表格/模板/机器生成——记忆先变强</li>
+            </ul>
+          </div>
+          <div class="quote-box">
+            「平滑的 scaling 曲线底下，很大一块是模板识别能力的增长，而不是推理。」
+            <cite>来源 · P1 周报 一阶段 · 后期 loss 加速分析</cite>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSIGHTS -->
+  <section id="insights">
+    <div class="wrap reveal">
+      <p class="eyebrow">05 · 如果只记住七条</p>
+      <h2>周报里反复出现的硬 Insight</h2>
+      <p class="lede">这些不是口号，是已经付出实验成本的结论。训练 1T 时，把它们当成默认检查项。</p>
+
+      <div class="insight-list">
+        <div class="insight-row">
+          <div class="insight-n">01</div>
+          <div>
+            <h3>重复不总是冗余</h3>
+            <p style="color:var(--mute);">统一阈值去重会超额删竞赛代码；同源 Agent 轨迹两种加工可互补。先按 domain / 来源分层，再谈删多少。</p>
+          </div>
+        </div>
+        <div class="insight-row">
+          <div class="insight-n">02</div>
+          <div>
+            <h3>模型变大，先变强的常常是记忆</h3>
+            <p style="color:var(--mute);">后期 loss 加速数据里学科内容不到 5%。别把 val loss 下降全理解成「更会推理」。</p>
+          </div>
+        </div>
+        <div class="insight-row">
+          <div class="insight-n">03</div>
+          <div>
+            <h3>评测体系是最大不确定性</h3>
+            <p style="color:var(--mute);">GPQA 贴地板、长文生产 bench 均长只有 15K、小模型 few-shot 不置信、ladder 分辨率不足。优先投资 val loss 与能力打标。</p>
+          </div>
+        </div>
+        <div class="insight-row">
+          <div class="insight-n">04</div>
+          <div>
+            <h3>配比是零和博弈</h3>
+            <p style="color:var(--mute);">每一版合版都在描述谁被挤占。总预算固定时，数据工作的实质是分配，不是无限新增。</p>
+          </div>
+        </div>
+        <div class="insight-row">
+          <div class="insight-n">05</div>
+          <div>
+            <h3>造上下文 &gt; 再筛一层</h3>
+            <p style="color:var(--mute);">PR 相关文件、release mask 上下文、长文 UUID 链、STEM 数据库改写——收益越来越多来自组织形式。</p>
+          </div>
+        </div>
+        <div class="insight-row">
+          <div class="insight-n">06</div>
+          <div>
+            <h3>以 SFT / val loss 裁决，不盲信 ICL</h3>
+            <p style="color:var(--mute);">Code ICL「雪崩」在 SFT 后消失；MRCR 上 ICL 与 SFT 可反向。小模型 0/1-shot 尤其不可靠。</p>
+          </div>
+        </div>
+        <div class="insight-row">
+          <div class="insight-n">07</div>
+          <div>
+            <h3>短训看不到的风险，长跑才暴露</h3>
+            <p style="color:var(--mute);">500B decay 不够；1.1T 后趋势才分离。合版要预留真正的长训窗口，并用非生产周期做周期性消融。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHECKLIST -->
+  <section id="checklist">
+    <div class="wrap reveal">
+      <p class="eyebrow">06 · 开干清单</p>
+      <h2>训练 1T 之前，勾完这些再烧卡</h2>
+      <p class="lede">按顺序勾。勾不完说明还没准备好上生产规模。</p>
+
+      <ul class="checklist">
+        <li><span class="box" aria-hidden="true"></span><span>能力目标与「不能掉点」的 bench 清单已书面确认</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>一阶段数据：去重策略分 domain 定稿；采样表（STEM / 热门 / 长尾）可复现</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>小 ladder + val loss 能区分你要试的配方差异（否则先升级评测）</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>六大 topic 各有 owner、交付量、专项 bench、已知风险（垂类去重、commit 管线、1M 短板…）</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>合版 Exp 路径写清；伴生 SFT 班车与 ICL 协议冻结</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>32k → 256k → 1M 节奏与 VLM 混训比例已对齐生产日历</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>长跑 derisk：Agent/长文持续 scale；无静默坏 bin；镜像版本锁定</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>泄题检测、回流 special token 清洗、质量模型准召过线</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>1T 训练：并行策略、checkpoint、存储带宽、故障恢复演练通过</span></li>
+        <li><span class="box" aria-hidden="true"></span><span>后训练班车与 Midtrain 评测归因口径一致</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <a class="brand" href="#top">1T <em>Playbook</em></a>
+    <p>
+      内容综合自「P1 周报」与「midtrain-topic 数据专项进展」（约 0714–0908）。
+      <br />面向入门读者的教学整理，数值以原文档为准；生产决策请回查 OnePage 与实验报告。
+    </p>
+  </footer>
+
+  <script>
+    // topic tabs
+    const tabs = document.querySelectorAll(".topic-tab");
+    const panels = document.querySelectorAll(".topic-panel");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        tabs.forEach((t) => t.classList.remove("active"));
+        panels.forEach((p) => p.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    // reveal on scroll
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) e.target.classList.add("in");
+        });
+      },
+      { threshold: 0.12 }
+    );
+    document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+  </script>
+
+<script>
+(function() {
+  const AUTH_KEY = 'ian_1t_playbook_auth';
+  const VALID_DAYS = 30;
+  const PWD_HASH = '5f55f3'; // ian1t
+  function hashPwd(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return Math.abs(h).toString(16).slice(0, 6);
+  }
+  function checkAuth() {
+    try {
+      const raw = localStorage.getItem(AUTH_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (data.hash !== PWD_HASH) return false;
+      return (Date.now() - data.ts) < VALID_DAYS * 24 * 60 * 60 * 1000;
+    } catch { return false; }
+  }
+  function unlock() {
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ hash: PWD_HASH, ts: Date.now() }));
+    document.getElementById('lockScreen').classList.add('hidden');
+    document.getElementById('desenseBanner').style.display = 'block';
+  }
+  if (checkAuth()) unlock();
+  window.verifyPassword = function() {
+    const input = document.getElementById('lockInput');
+    const error = document.getElementById('lockError');
+    const pwd = input.value.trim();
+    if (!pwd) { error.textContent = '请输入密码'; return; }
+    if (hashPwd(pwd) === PWD_HASH) { unlock(); error.textContent = ''; }
+    else { error.textContent = '密码错误'; input.value = ''; input.focus(); }
+  };
+  document.getElementById('lockBtn').addEventListener('click', window.verifyPassword);
+  document.getElementById('lockInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') window.verifyPassword();
+  });
+})();
+</script>
+</body>
+</html>
