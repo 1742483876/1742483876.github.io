@@ -541,6 +541,69 @@
       transform: none;
     }
 
+
+    /* clickable terms */
+    .term {
+      border-bottom: 1.5px dashed rgba(196, 92, 38, 0.55);
+      cursor: help;
+      color: inherit;
+      font-weight: 500;
+    }
+    .term:hover { background: var(--accent-soft); }
+    .tip {
+      position: fixed; z-index: 80;
+      width: min(360px, calc(100vw - 24px));
+      background: var(--ink); color: var(--paper);
+      padding: 14px 16px; border-radius: 2px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.28);
+      font-size: 0.9rem; line-height: 1.5;
+      display: none;
+    }
+    .tip.open { display: block; }
+    .tip .tip-k {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #e8a06a;
+      margin-bottom: 6px;
+    }
+    .tip .tip-close {
+      position: absolute; top: 8px; right: 10px;
+      background: transparent; border: 0; color: rgba(243,239,230,0.55);
+      font-size: 1rem; cursor: pointer;
+    }
+    .gloss-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .gloss-card {
+      padding: 16px 16px 14px; background: var(--paper-2); border-radius: 2px;
+      border: 1px solid var(--line);
+    }
+    .gloss-card h3 {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.95rem; margin-bottom: 6px; color: var(--accent-2);
+    }
+    .gloss-card p { font-size: 0.92rem; color: var(--mute); margin: 0; }
+    .gloss-filter {
+      width: 100%; max-width: 420px; margin-bottom: 20px;
+      padding: 10px 12px; border: 1px solid var(--line); border-radius: 2px;
+      background: #fff; font-size: 0.95rem; outline: none;
+    }
+    .post-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--line); border: 1px solid var(--line); margin-top: 8px;
+    }
+    .post-grid > div { background: var(--paper); padding: 22px 18px; }
+    .post-grid h3 { font-size: 1.05rem; margin-bottom: 8px; }
+    .post-grid p { font-size: 0.92rem; color: var(--mute); }
+    .hint-bar {
+      margin: 16px 0 0; padding: 10px 14px;
+      background: var(--teal-soft); color: var(--accent-2);
+      font-size: 0.9rem; border-radius: 2px;
+    }
+    @media (max-width: 860px) {
+      .gloss-grid, .post-grid { grid-template-columns: 1fr; }
+    }
+
     @media (max-width: 860px) {
       .compare, .needs, .topic-grid, .analogy { grid-template-columns: 1fr; }
       .nav-links { display: none; }
@@ -552,7 +615,7 @@
 </head>
 <body>
 <div class="desense-banner" style="max-width:1080px;margin:0 auto;padding:10px 24px;font-size:0.85rem;color:#5a6a5f;border-bottom:1px solid rgba(15,26,20,0.12);background:rgba(196,92,38,0.06)">
-  脱敏教学版 · <a href="/" style="color:#1f6f5b">← Ian Home</a>
+  脱敏教学版 · 虚线词可点开解释 · <a href="/" style="color:#1f6f5b">← Ian Home</a> · <a href="#glossary" style="color:#1f6f5b">术语表</a>
 </div>
 
 
@@ -564,10 +627,11 @@
       <ul class="nav-links">
         <li><a href="#basics">先搞懂</a></li>
         <li><a href="#roadmap">路线图</a></li>
-        <li><a href="#needs">你需要什么</a></li>
+        <li><a href="#posttrain">后训练</a></li>
+        <li><a href="#glossary">术语表</a></li>
         <li><a href="#topics">各 Topic</a></li>
-        <li><a href="#insights">周报 Insight</a></li>
-        <li><a href="#checklist">开干清单</a></li>
+        <li><a href="#insights">Insight</a></li>
+        <li><a href="#checklist">清单</a></li>
       </ul>
     </div>
   </nav>
@@ -581,7 +645,7 @@
       </p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#roadmap">从第一步开始 →</a>
-        <a class="btn btn-ghost" href="#basics">先搞懂两个词</a>
+        <a class="btn btn-ghost" href="#glossary">看不懂的词点这里</a>
       </div>
     </div>
   </header>
@@ -812,12 +876,13 @@
           <div class="step-body">
             <h3 class="step-title">后训练对齐（SFT / RL）接棒</h3>
             <div class="step-meta">
-              <span class="pill">班车 SFT</span>
-              <span class="pill">指令遵循</span>
+              <span class="pill">SFT</span>
+              <span class="pill">RL / RLHF</span>
+              <span class="pill">班车评测</span>
             </div>
             <p>
-              Midtrain 交付的是「底座能力」；对话风格、工具调用格式、安全对齐靠后训练。
-              Midtrain 阶段就要和后训练班车对齐评测协议，否则你看到的涨跌没法归因。
+              Midtrain 交付的是「底座能力」；真正能对话、会用工具、守规矩，靠后训练。
+              详见下方「后训练」专章：SFT 教格式与跟随，RL 用反馈继续拧能力。
             </p>
           </div>
         </article>
@@ -1092,6 +1157,83 @@
     </div>
   </section>
 
+
+  <!-- POSTTRAIN -->
+  <section id="posttrain">
+    <div class="wrap reveal">
+      <p class="eyebrow">后训练 · Post-training</p>
+      <h2>底座训完了，还要「教会怎么跟人说话」</h2>
+      <p class="lede">
+        可以把预训练 + 中训练想成「把书写进脑子」；后训练是「练习考试答题卡怎么填、怎么礼貌地回答、错了怎么改」。
+        没有后训练，模型可能很博学，但不会按你的指令稳定输出。
+      </p>
+      <p class="hint-bar">文中橙色虚线词可以点击，会弹出人话解释（也可用上方「术语表」整页查阅）。</p>
+
+      <div class="post-grid">
+        <div>
+          <h3>1. SFT 监督微调</h3>
+          <p>
+            准备大量「问题 → 理想回答」对，让模型模仿。作用：学会聊天格式、工具调用写法、
+            何时输出思考、中英切换等。你们周报里的「伴生 SFT / 班车」就是：中训练跑一段，
+            用固定后训练配方评一次，看底座有没有真正变强。
+          </p>
+        </div>
+        <div>
+          <h3>2. 偏好对齐（RLHF 等）</h3>
+          <p>
+            人不只给标准答案，还给「哪个更好」的偏好；或用奖励模型 / 规则打分，
+            再用强化学习（常见如 PPO、DPO 一类）继续调。作用：更听话、更安全、更少胡编乱造的表达。
+          </p>
+        </div>
+        <div>
+          <h3>3. 专项 RL / 工具 RL</h3>
+          <p>
+            对代码、数学、搜索 Agent 等，用可自动判对错的环境做强化：做对给奖、做错惩罚。
+            这是「会刷题 / 会改仓库」变强的常见后半段，和中训练里的轨迹数据前后呼应。
+          </p>
+        </div>
+      </div>
+
+      <div class="compare" style="margin-top:28px;">
+        <div>
+          <span class="tag tag-pre">和中训练的分工</span>
+          <h3>中训练：能力与知识密度</h3>
+          <ul>
+            <li>加长上下文、Agent 轨迹、STEM 题、知识改写</li>
+            <li>关心 val loss、domain bench、合版配比</li>
+            <li>产出：更强的「底座 checkpoint」</li>
+          </ul>
+        </div>
+        <div>
+          <span class="tag tag-mid">后训练：行为与产品形态</span>
+          <h3>后训练：交互与对齐</h3>
+          <ul>
+            <li>对话模板、安全、拒答、工具格式</li>
+            <li>关心指令遵循、真人偏好、线上坏 case</li>
+            <li>产出：能上线给用户用的助手</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="insight ok" style="margin-top:20px;">
+        <span class="label">为什么周报总提「以 SFT 结论为主」</span>
+        小模型上的 ICL（尤其 0/1-shot）波动大，有时会「假崩塌」。中训练数据是否真有效，
+        往往要过一遍固定班车 SFT 再看：如果 SFT 后能力回来了，多半是评测方式问题，不是底座训废了。
+      </div>
+    </div>
+  </section>
+
+  <!-- GLOSSARY -->
+  <section id="glossary">
+    <div class="wrap reveal">
+      <p class="eyebrow">术语表 · 小白科普</p>
+      <h2>这些词到底什么意思</h2>
+      <p class="lede">先搜一下；也可以在正文里点橙色虚线词，随时弹出解释。</p>
+      <input class="gloss-filter" id="glossFilter" type="search" placeholder="搜索：ICL、MRCR、ladder、去重…" />
+      <div class="gloss-grid" id="glossGrid"></div>
+    </div>
+  </section>
+
   <!-- INSIGHTS -->
   <section id="insights">
     <div class="wrap reveal">
@@ -1178,8 +1320,8 @@
   <footer>
     <a class="brand" href="#top">1T <em>Playbook</em></a>
     <p>
-      内容综合自「P1 周报」与「midtrain-topic 数据专项进展」（约 0714–0908）。
-      <br />面向入门读者的教学整理，数值以原文档为准；生产决策请回查 OnePage 与实验报告。
+      面向入门读者的脱敏教学整理：预训练 · 中训练 · 后训练 · 术语科普。
+      <br />正文虚线词可点击解释；完整列表见「术语表」。
     </p>
   </footer>
 
@@ -1206,6 +1348,164 @@
       { threshold: 0.12 }
     );
     document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+    // --- glossary + clickable terms ---
+    const TERM_DEFS = {
+  "token": "模型读写文本时切成的最小单位，有点像「字块」。训练量常说「多少 token」，不是「多少篇文章」。",
+  "1T": "一万亿（trillion）。「1T 参数」= 模型权重规模；「1T token」= 训练看过的文本量。两者不是一回事。",
+  "参数": "模型里需要学习的权重数量。参数越大，通常表达能力上限越高，但也更吃显存与算力。",
+  "Pretrain": "预训练：用海量通用文本先学语言和世界知识，相当于打底子。",
+  "预训练": "用海量通用文本先学语言和世界知识，相当于打底子。也叫 Pretrain / 一阶段。",
+  "Midtrain": "中训练：在预训练之后、后训练之前，用更高密度、更偏任务的数据继续训（代码、长文、Agent 等）。",
+  "中训练": "在预训练之后、后训练之前，用更高密度、更偏任务的数据继续训。也叫 Midtrain。",
+  "后训练": "Post-training：SFT、RLHF 等，把底座调成会聊天、守规矩、会用工具的产品形态。",
+  "Post-training": "后训练：SFT、RLHF 等，把底座调成可上线助手。",
+  "SFT": "Supervised Fine-Tuning，监督微调：用「问题→标准回答」教模型模仿，常见于对齐对话格式。",
+  "ICL": "In-Context Learning，上下文学习：不改权重，只在提示里给例子，让模型当场照着做。0/1-shot 很脆，结论要谨慎。",
+  "few-shot": "提示里给少量例子再让模型做题。比 zero-shot 稳一点，但仍可能波动。",
+  "zero-shot": "提示里不给例子，直接做题。最省事，但也最容易测出噪声。",
+  "0/1-shot": "只给 0 个或 1 个例子的 ICL 评测。小模型上经常不稳定，周报里常提醒别盲目信它。",
+  "CoT": "Chain-of-Thought，思维链：让模型先一步步推理再给答案。有的数据带 CoT，有的不带，会影响表现。",
+  "RL": "Reinforcement Learning，强化学习：用奖励信号继续调模型（做对加分、做错减分）。",
+  "RLHF": "用人类偏好当反馈的强化学习对齐，让回答更符合人喜欢的风格与安全要求。",
+  "val loss": "Validation loss：在「没拿来训练」的验证集上算的损失。越低通常越好，比花哨榜更适合看趋势。",
+  "validation loss": "验证集损失，用来看模型有没有真的学到、有没有过拟合。",
+  "ladder": "一组由小到大的模型档位，用来低成本试数据策略。像爬梯子：先在小模型上看差别，再放大到大模型。",
+  "scaling": "规模定律相关：数据量、算力、模型变大时，指标大概怎么变。也泛指「继续加量是否还涨点」。",
+  "U": "常指标唯一数据量 / unique support：同样训练预算下，独特文本有多少。U 太小就容易反复啃同一批数据。",
+  "unique support": "独特文本的有效覆盖面。去重会改变重复分布，效果上类似让 unique support 变大。",
+  "epoch": "把整份训练数据完整过一轮叫 1 个 epoch。多 epoch = 同一数据重复学习多遍。",
+  "checkpoint": "训练中途保存的模型快照，方便回滚、评测或继续训。",
+  "bin": "训练用的二进制数据文件。坏 bin（比如 token 被写成 0）会直接把实验带崩。",
+  "配比": "各类数据在合版里的占比。总 token 固定时，加 A 就要减 B，是零和的。",
+  "合版": "把各 topic 数据按比例拼成一份最终训练配方，并做消融实验定版。",
+  "quota": "配额：某类数据能占用的 token 份额。挤占别人的 quota 可能让别的能力掉点。",
+  "去重": "删掉过于相似的文本，避免模型只会背模板。但阈值一刀切可能误伤靠「重复练习」变强的能力。",
+  "MinHash": "一种快速近似去重算法：把文本变成指纹，相似指纹就判重复。擅长抓「字面很像」的拷贝。",
+  "BGE": "一类语义向量模型。BGE 语义去重：把意思相近的文档当成重复删掉，不只看字面。",
+  "语义去重": "按「意思像不像」去重，而不是只按字符像不像。可能误伤长文档或同主题的好文章。",
+  "SAE": "Sparse Autoencoder，稀疏自编码器。用在去重上时：看模型内部特征激活是否重合来判断内容是否重复，往往更中立。",
+  "SAE 去重": "用稀疏自编码器特征判断重复。相对纯向量语义去重，有时更不容易偏爱删长文，并带一点质量筛选效应。",
+  "MRCR": "一类长文「多针检索 / 多证据定位」评测：在很长上下文里找多处信息并答对。常用来看长上下文能力。",
+  "SWE": "Software Engineering 相关榜（如 SWE-bench）：考模型能不能改真实代码仓库里的 bug。",
+  "SWE-bench": "在真实 GitHub issue 上改代码并让测试通过的基准，Agent/代码能力的重要尺子。",
+  "SimpleQA": "偏事实问答的评测：问具体知识点，看答得对不对。知识数据常盯它。",
+  "GPQA": "很难的研究生级问答基准。若分数贴地板，可能测不出数据策略的细小差别。",
+  "HELMET": "长上下文评测集合之一，常按 64k/128k 等档看检索与理解。",
+  "STEM": "科学、技术、工程、数学相关数据与能力（数理化生等）。",
+  "VLM": "Vision-Language Model，视觉语言模型：既能看图又能读文。",
+  "OCR": "光学字符识别：从图/扫描件里把字读出来。多模态数据里很常见。",
+  "Agent": "能调用工具、多步行动的模型用法（改代码、搜索、点界面等），不只是单轮聊天。",
+  "traj": "trajectory，轨迹：一次多轮工具调用的完整过程记录，常作 Agent 训练数据。",
+  "userlog": "用户真实使用日志回流下来的轨迹/对话，需清洗脱敏后再训练。",
+  "pass@k": "生成 k 个答案里至少一个对的概率。代码题常用；比只看第一发更宽容。",
+  "domain bench": "按领域（代码、知识、长文…）拆开的评测集，用来看合版有没有偏科。",
+  "伴生 SFT": "中训练过程中定期用同一套后训练配方评测，观察底座随训练是否持续变强。",
+  "班车": "相对固定、定期发车的后训练与评测流水线，方便不同实验公平对比。",
+  "Data Probe": "把评测从「整张榜」下沉到「能力标签」的方法，方便对比训练数据和考卷能力分布。",
+  "Nextlong": "一种合成长文数据方法：把短段落按主题召回拼成更长文档，用于练长上下文。",
+  "ACC": "一类从回流轨迹重组的长文能力数据（检索、多文档问答、状态追踪等）。",
+  "DRP": "Deep Research Pretraining：用论文/百科的引用结构反推「深度研究轨迹」来训练。",
+  "constLR": "学习率保持恒定（不衰减）的训练设置，常用于长跑观察是否持续涨点。",
+  "消融": "Ablation：一次只改一个因素，看这个因素有没有用。合版实验的基本功。",
+  "derisk": "提前做实验排除风险，避免正式大规模训练才发现配方有坑。",
+  "幂律": "一种采样曲线形状：占比高的略降、占比低的略升，用指数关系插值，避免极端。",
+  "长尾": "出现次数很少但种类很多的数据。覆盖它们可能很有价值，但上采样过多也可能不涨点。",
+  "上下文": "模型一次能读入的文本长度窗口，如 32k、256k、1M tokens。",
+  "32k / 256k / 1M": "上下文长度档位。数字越大，一次能塞进的文本越长，训练与评测也越难。"
+};
+
+    const glossGrid = document.getElementById('glossGrid');
+    const glossFilter = document.getElementById('glossFilter');
+    function renderGloss(filter = '') {
+      if (!glossGrid) return;
+      const q = filter.trim().toLowerCase();
+      const entries = Object.entries(TERM_DEFS)
+        .filter(([k, v]) => !q || k.toLowerCase().includes(q) || v.toLowerCase().includes(q))
+        .sort((a, b) => a[0].localeCompare(b[0], 'zh'));
+      glossGrid.innerHTML = entries.map(([k, v]) =>
+        `<div class="gloss-card" data-k="${k}"><h3>${k}</h3><p>${v}</p></div>`
+      ).join('') || '<p style="color:var(--mute)">没有匹配的术语</p>';
+    }
+    renderGloss();
+    if (glossFilter) glossFilter.addEventListener('input', (e) => renderGloss(e.target.value));
+
+    const tip = document.createElement('div');
+    tip.className = 'tip';
+    tip.innerHTML = '<button class="tip-close" type="button" aria-label="关闭">×</button><div class="tip-k"></div><div class="tip-v"></div>';
+    document.body.appendChild(tip);
+    tip.querySelector('.tip-close').onclick = () => tip.classList.remove('open');
+    document.addEventListener('click', (e) => {
+      if (!tip.contains(e.target) && !e.target.closest('.term')) tip.classList.remove('open');
+    });
+
+    function showTip(anchor, key) {
+      const def = TERM_DEFS[key];
+      if (!def) return;
+      tip.querySelector('.tip-k').textContent = key;
+      tip.querySelector('.tip-v').textContent = def;
+      tip.classList.add('open');
+      const r = anchor.getBoundingClientRect();
+      const tw = tip.offsetWidth;
+      const th = tip.offsetHeight;
+      let left = r.left + window.scrollX;
+      let top = r.bottom + window.scrollY + 8;
+      if (left + tw > window.scrollX + window.innerWidth - 12) left = window.scrollX + window.innerWidth - tw - 12;
+      if (top + th > window.scrollY + window.innerHeight - 12) top = r.top + window.scrollY - th - 8;
+      tip.style.left = Math.max(8, left) + 'px';
+      tip.style.top = Math.max(8, top) + 'px';
+    }
+
+    document.addEventListener('click', (e) => {
+      const t = e.target.closest('.term');
+      if (!t) return;
+      e.preventDefault();
+      showTip(t, t.dataset.term);
+    });
+
+    // auto-wrap terms in main sections (skip script/style/nav already done)
+    const keys = Object.keys(TERM_DEFS).sort((a, b) => b.length - a.length);
+    const skip = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'INPUT', 'TEXTAREA', 'CODE']);
+    function wrapTextNode(node) {
+      const text = node.nodeValue;
+      if (!text || !text.trim()) return;
+      let matched = null;
+      for (const k of keys) {
+        const idx = text.indexOf(k);
+        if (idx !== -1) { matched = { k, idx }; break; }
+      }
+      if (!matched) return;
+      const { k, idx } = matched;
+      const before = text.slice(0, idx);
+      const after = text.slice(idx + k.length);
+      const frag = document.createDocumentFragment();
+      if (before) frag.appendChild(document.createTextNode(before));
+      const span = document.createElement('span');
+      span.className = 'term';
+      span.dataset.term = k;
+      span.textContent = k;
+      span.title = '点击查看解释';
+      frag.appendChild(span);
+      if (after) frag.appendChild(document.createTextNode(after));
+      node.parentNode.replaceChild(frag, node);
+      // re-process after part via new text node (last child if after)
+    }
+    function walk(el) {
+      if (!el || el.nodeType !== 1) return;
+      if (skip.has(el.tagName) || el.classList.contains('tip') || el.classList.contains('gloss-card') || el.classList.contains('term')) return;
+      if (el.id === 'glossGrid') return;
+      const children = Array.from(el.childNodes);
+      for (const child of children) {
+        if (child.nodeType === 3) wrapTextNode(child);
+        else if (child.nodeType === 1) walk(child);
+      }
+    }
+    // multiple passes to catch several terms per text node
+    const roots = document.querySelectorAll('section, .hero-lead');
+    for (let pass = 0; pass < 8; pass++) {
+      roots.forEach(walk);
+    }
+
   </script>
 
 </body>
