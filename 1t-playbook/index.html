@@ -544,33 +544,45 @@
 
     /* clickable terms */
     .term {
-      border-bottom: 1.5px dashed rgba(196, 92, 38, 0.55);
-      cursor: help;
+      border-bottom: 1.5px dashed rgba(196, 92, 38, 0.75);
+      cursor: pointer;
       color: inherit;
-      font-weight: 500;
+      font-weight: 600;
+      background: rgba(196, 92, 38, 0.08);
+      padding: 0 2px;
+      border-radius: 2px;
+      -webkit-tap-highlight-color: rgba(196,92,38,0.25);
     }
-    .term:hover { background: var(--accent-soft); }
+    .term:hover, .term:active { background: var(--accent-soft); }
     .tip {
-      position: fixed; z-index: 80;
-      width: min(360px, calc(100vw - 24px));
-      background: var(--ink); color: var(--paper);
-      padding: 14px 16px; border-radius: 2px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.28);
-      font-size: 0.9rem; line-height: 1.5;
+      position: fixed; z-index: 200;
+      left: 50%; bottom: 18px; transform: translateX(-50%);
+      width: min(420px, calc(100vw - 24px));
+      background: #0f1a14; color: #f3efe6;
+      padding: 16px 18px 18px; border-radius: 8px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.35);
+      font-size: 0.95rem; line-height: 1.55;
       display: none;
+      max-height: min(42vh, 320px); overflow: auto;
     }
-    .tip.open { display: block; }
+    .tip.open { display: block; animation: tipIn 0.18s ease-out; }
+    @keyframes tipIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
     .tip .tip-k {
       font-family: "IBM Plex Mono", monospace;
-      font-size: 0.72rem; letter-spacing: 0.06em;
+      font-size: 0.75rem; letter-spacing: 0.06em;
       text-transform: uppercase; color: #e8a06a;
-      margin-bottom: 6px;
+      margin-bottom: 8px; padding-right: 24px;
     }
     .tip .tip-close {
-      position: absolute; top: 8px; right: 10px;
-      background: transparent; border: 0; color: rgba(243,239,230,0.55);
-      font-size: 1rem; cursor: pointer;
+      position: absolute; top: 10px; right: 12px;
+      background: transparent; border: 0; color: rgba(243,239,230,0.7);
+      font-size: 1.25rem; cursor: pointer; line-height: 1;
     }
+    .gloss-card { cursor: pointer; transition: border-color 0.15s; }
+    .gloss-card:hover { border-color: var(--accent); }
     .gloss-grid {
       display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
     }
@@ -1430,80 +1442,97 @@
     renderGloss();
     if (glossFilter) glossFilter.addEventListener('input', (e) => renderGloss(e.target.value));
 
+
     const tip = document.createElement('div');
     tip.className = 'tip';
+    tip.setAttribute('role', 'dialog');
     tip.innerHTML = '<button class="tip-close" type="button" aria-label="关闭">×</button><div class="tip-k"></div><div class="tip-v"></div>';
     document.body.appendChild(tip);
-    tip.querySelector('.tip-close').onclick = () => tip.classList.remove('open');
-    document.addEventListener('click', (e) => {
-      if (!tip.contains(e.target) && !e.target.closest('.term')) tip.classList.remove('open');
+    const tipK = tip.querySelector('.tip-k');
+    const tipV = tip.querySelector('.tip-v');
+    tip.querySelector('.tip-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      tip.classList.remove('open');
     });
 
-    function showTip(anchor, key) {
+    function showTip(key) {
       const def = TERM_DEFS[key];
       if (!def) return;
-      tip.querySelector('.tip-k').textContent = key;
-      tip.querySelector('.tip-v').textContent = def;
+      tipK.textContent = key;
+      tipV.textContent = def;
       tip.classList.add('open');
-      const r = anchor.getBoundingClientRect();
-      const tw = tip.offsetWidth;
-      const th = tip.offsetHeight;
-      let left = r.left + window.scrollX;
-      let top = r.bottom + window.scrollY + 8;
-      if (left + tw > window.scrollX + window.innerWidth - 12) left = window.scrollX + window.innerWidth - tw - 12;
-      if (top + th > window.scrollY + window.innerHeight - 12) top = r.top + window.scrollY - th - 8;
-      tip.style.left = Math.max(8, left) + 'px';
-      tip.style.top = Math.max(8, top) + 'px';
     }
 
     document.addEventListener('click', (e) => {
-      const t = e.target.closest('.term');
-      if (!t) return;
-      e.preventDefault();
-      showTip(t, t.dataset.term);
-    });
+      const termEl = e.target.closest('.term');
+      if (termEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        showTip(termEl.getAttribute('data-term'));
+        return;
+      }
+      const card = e.target.closest('.gloss-card');
+      if (card && card.getAttribute('data-k')) {
+        e.preventDefault();
+        e.stopPropagation();
+        showTip(card.getAttribute('data-k'));
+        return;
+      }
+      if (!tip.contains(e.target)) tip.classList.remove('open');
+    }, true);
 
-    // auto-wrap terms in main sections (skip script/style/nav already done)
-    const keys = Object.keys(TERM_DEFS).sort((a, b) => b.length - a.length);
-    const skip = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'INPUT', 'TEXTAREA', 'CODE']);
+    // auto-wrap terms (skip very short ambiguous keys in free text)
+    const SKIP_AUTO = new Set(['U', 'RL', 'ACC', 'OCR', 'bin']);
+    const keys = Object.keys(TERM_DEFS)
+      .filter((k) => !SKIP_AUTO.has(k))
+      .sort((a, b) => b.length - a.length);
+    const skipTags = new Set(['SCRIPT', 'STYLE', 'A', 'BUTTON', 'INPUT', 'TEXTAREA', 'CODE', 'H1', 'H2']);
     function wrapTextNode(node) {
       const text = node.nodeValue;
-      if (!text || !text.trim()) return;
+      if (!text || !/\S/.test(text)) return false;
       let matched = null;
       for (const k of keys) {
         const idx = text.indexOf(k);
-        if (idx !== -1) { matched = { k, idx }; break; }
+        if (idx === -1) continue;
+        // avoid wrapping inside longer latin words for short ASCII keys
+        if (/^[A-Za-z0-9]/.test(k) && k.length <= 4) {
+          const beforeCh = idx > 0 ? text[idx - 1] : '';
+          const afterCh = idx + k.length < text.length ? text[idx + k.length] : '';
+          if (/[A-Za-z0-9]/.test(beforeCh) || /[A-Za-z0-9]/.test(afterCh)) continue;
+        }
+        matched = { k, idx };
+        break;
       }
-      if (!matched) return;
+      if (!matched) return false;
       const { k, idx } = matched;
-      const before = text.slice(0, idx);
-      const after = text.slice(idx + k.length);
+      const parent = node.parentNode;
+      if (!parent) return false;
       const frag = document.createDocumentFragment();
-      if (before) frag.appendChild(document.createTextNode(before));
+      if (idx > 0) frag.appendChild(document.createTextNode(text.slice(0, idx)));
       const span = document.createElement('span');
       span.className = 'term';
-      span.dataset.term = k;
+      span.setAttribute('data-term', k);
       span.textContent = k;
-      span.title = '点击查看解释';
       frag.appendChild(span);
-      if (after) frag.appendChild(document.createTextNode(after));
-      node.parentNode.replaceChild(frag, node);
-      // re-process after part via new text node (last child if after)
+      if (idx + k.length < text.length) frag.appendChild(document.createTextNode(text.slice(idx + k.length)));
+      parent.replaceChild(frag, node);
+      return true;
     }
     function walk(el) {
       if (!el || el.nodeType !== 1) return;
-      if (skip.has(el.tagName) || el.classList.contains('tip') || el.classList.contains('gloss-card') || el.classList.contains('term')) return;
-      if (el.id === 'glossGrid') return;
+      if (skipTags.has(el.tagName)) return;
+      if (el.classList && (el.classList.contains('tip') || el.classList.contains('term') || el.id === 'glossGrid')) return;
       const children = Array.from(el.childNodes);
       for (const child of children) {
         if (child.nodeType === 3) wrapTextNode(child);
         else if (child.nodeType === 1) walk(child);
       }
     }
-    // multiple passes to catch several terms per text node
-    const roots = document.querySelectorAll('section, .hero-lead');
-    for (let pass = 0; pass < 8; pass++) {
-      roots.forEach(walk);
+    try {
+      const roots = document.querySelectorAll('section .wrap, section .lede, .hero-lead, .insight, .compare, .post-grid');
+      for (let pass = 0; pass < 12; pass++) roots.forEach(walk);
+    } catch (err) {
+      console.error('term wrap failed', err);
     }
 
   </script>
