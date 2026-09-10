@@ -616,6 +616,37 @@
       .gloss-grid, .post-grid { grid-template-columns: 1fr; }
     }
 
+
+    .src {
+      display: inline-block; font-family: "IBM Plex Mono", monospace;
+      font-size: 0.68rem; letter-spacing: 0.04em; padding: 2px 7px;
+      border-radius: 2px; margin-right: 6px; vertical-align: middle;
+      font-weight: 500;
+    }
+    .src-paper { background: rgba(31,111,91,0.14); color: var(--accent-2); }
+    .src-internal { background: rgba(196,92,38,0.12); color: var(--accent); }
+    .src-rule { background: rgba(15,26,20,0.08); color: var(--mute); }
+    .recipe {
+      width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 12px 0 8px;
+    }
+    .recipe th, .recipe td {
+      border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top;
+    }
+    .recipe th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--mute); font-weight: 600; }
+    .recipe td.num { font-variant-numeric: tabular-nums; white-space: nowrap; font-family: "IBM Plex Mono", monospace; font-size: 0.85rem; }
+    .callout-note {
+      margin: 16px 0; padding: 14px 16px; border-left: 3px solid var(--accent-2);
+      background: rgba(31,111,91,0.06); font-size: 0.92rem; color: var(--mute);
+    }
+    .insight-list-pub { display: flex; flex-direction: column; gap: 14px; }
+    .insight-pub {
+      padding: 16px 16px 14px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 2px;
+    }
+    .insight-pub h3 { font-size: 1.05rem; margin: 8px 0 6px; }
+    .insight-pub p { color: var(--mute); font-size: 0.92rem; margin: 0; }
+    .insight-pub .links { margin-top: 8px; font-size: 0.82rem; }
+    .insight-pub .links a { margin-right: 12px; }
+
     @media (max-width: 860px) {
       .compare, .needs, .topic-grid, .analogy { grid-template-columns: 1fr; }
       .nav-links { display: none; }
@@ -638,12 +669,12 @@
       <a class="brand" href="#top">1T <em>Playbook</em></a>
       <ul class="nav-links">
         <li><a href="#basics">先搞懂</a></li>
-        <li><a href="#roadmap">路线图</a></li>
+        <li><a href="#scale">数据量</a></li>
+        <li><a href="#mix">配比</a></li>
+        <li><a href="#vlm-how">VLM</a></li>
+        <li><a href="#public">公开 Insight</a></li>
         <li><a href="#posttrain">后训练</a></li>
         <li><a href="#glossary">术语表</a></li>
-        <li><a href="#topics">各 Topic</a></li>
-        <li><a href="#insights">Insight</a></li>
-        <li><a href="#checklist">清单</a></li>
       </ul>
     </div>
   </nav>
@@ -652,13 +683,20 @@
     <div class="hero-inner">
       <h1 class="hero-brand">1T<br /><em>Playbook</em></h1>
       <p class="hero-lead">
-        把你当成第一次接触大模型训练的人：预训练和中训练分别干什么、各 topic 怎么配、
-        训练一个万亿参数模型该按什么顺序做——以及公开可复述的方法论与常见坑。本页为脱敏教学版。
+        小白向：1T 要多少数据、配比怎么配、各 topic 大概多少、VLM 怎么改——
+        综合公开论文与可复述的方法论。每条 insight 都标了来源，方便你对照原文。
       </p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="#roadmap">从第一步开始 →</a>
-        <a class="btn btn-ghost" href="#glossary">看不懂的词点这里</a>
+        <a class="btn btn-primary" href="#scale">先看要多少数据 →</a>
+        <a class="btn btn-ghost" href="#public">公开论文 Insight</a>
       </div>
+      <div class="callout-note" style="margin-top:20px;">
+        <strong>怎么看来源标签：</strong>
+        <span class="src src-paper">论文</span> 公开论文 / 技术报告（可点 arXiv）；
+        <span class="src src-internal">内部周报</span> 脱敏后的内部经验；
+        <span class="src src-rule">方法</span> 行业惯例或推导示意（不是某篇论文原话）。
+      </div>
+
     </div>
   </header>
 
@@ -902,6 +940,253 @@
     </div>
   </section>
 
+  <!-- SCALE -->
+  <section id="scale">
+    <div class="wrap reveal">
+      <p class="eyebrow">公开研究 · 数据量</p>
+      <h2>训一个 1T 参数模型，大概要多少数据？</h2>
+      <p class="lede">
+        先分清两件事：<strong>参数量</strong>（模型有多大）和 <strong>token 量</strong>（看过多少字）。
+        「1T 模型」通常指约 10¹² 个参数；该喂多少 token，公开结论已经变了好几次。
+      </p>
+
+      <table class="recipe">
+        <thead>
+          <tr><th>口径</th><th>经验公式</th><th>对 1T 参数意味着…</th><th>来源</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>计算最优（经典）</td>
+            <td class="num">≈ 20 token / 参数</td>
+            <td class="num">≈ 20T tokens</td>
+            <td><span class="src src-paper">论文</span> Hoffmann et al., Chinchilla, 2022 · arXiv:2203.15556</td>
+          </tr>
+          <tr>
+            <td>现代超训（常见）</td>
+            <td class="num">几十～上百 token / 参数</td>
+            <td>远超 20T；看质量与重复策略，不是只堆字数</td>
+            <td><span class="src src-paper">论文</span> Llama 3（约 15T tokens 训到 405B，远超 Chinchilla 比例）· arXiv:2407.21783</td>
+          </tr>
+          <tr>
+            <td>开源大模型近年量级</td>
+            <td class="num">约 15T–20T+ 预训练 token</td>
+            <td>Dense 1T 若对齐这个「时代标准」，预训练往往也是十几 T 起跳</td>
+            <td><span class="src src-paper">论文</span> DeepSeek-V3 14.8T · arXiv:2412.19437；Qwen2.5 系列公开称预训练扩到约 18T（Max 称 20T+）</td>
+          </tr>
+          <tr>
+            <td>中训练（额外）</td>
+            <td class="num">通常再加 0.5T–数 T</td>
+            <td>在底座之上继续训长文 / Agent / STEM 等；总量取决于目标能力</td>
+            <td><span class="src src-rule">方法</span> 行业惯例 + <span class="src src-internal">内部脱敏</span> 中训练合版常在数 T 量级</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout-note">
+        <strong>小白结论：</strong>若只问「计算最优下限」，Chinchilla 说大约 <em>20× 参数</em> → 1T 参数约 <em>20T token</em>。
+        但 2024–2025 的强模型普遍<strong>故意多喂数据</strong>（超训），因为高质量数据 + 多看几遍往往更划算。
+        规划 1T 时：先按 <strong>15T–30T 预训练</strong>做预算，再单列 <strong>中训练数 T</strong> 与 <strong>后训练</strong>（SFT/RL，通常远小于预训练，但数据质量极高）。
+      </div>
+
+      <h3 style="margin-top:28px;">如果总预算锁死，怎么切阶段？（示意）</h3>
+      <table class="recipe">
+        <thead>
+          <tr><th>阶段</th><th>示意占比（相对总 token）</th><th>干什么</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>预训练 / 一阶段</td><td class="num">70%–85%</td><td>覆盖世界知识、语言、基础推理</td></tr>
+          <tr><td>中训练</td><td class="num">10%–25%</td><td>代码 / 长文 / Agent / STEM / 知识密度</td></tr>
+          <tr><td>上下文扩展</td><td class="num">另计或并入中训练</td><td>32k→256k→1M 等窗口拉长</td></tr>
+          <tr><td>后训练</td><td class="num">通常 &lt;5%（但极贵）</td><td>SFT + 偏好/RL，决定产品形态</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:0.85rem;color:var(--mute);">示意表不是定理；公开论文很少给「1T 专用标准切分」。用途：帮你写预算，而不是照抄交付。</p>
+    </div>
+  </section>
+
+  <!-- MIX -->
+  <section id="mix">
+    <div class="wrap reveal">
+      <p class="eyebrow">公开研究 · 配比</p>
+      <h2>配比应该咋配？各 topic 大概多少？</h2>
+      <p class="lede">
+        没有全球统一答案。公开共识是：<strong>配比会显著影响下游</strong>，且领域之间会互相打架——所以要用小模型试，再放大。
+      </p>
+
+      <div class="insight-list-pub">
+        <div class="insight-pub">
+          <span class="src src-paper">论文</span>
+          <h3>Llama 3 最终预训练配比（可当「通用底座」参考）</h3>
+          <p>约 <strong>50% 通用知识</strong>、<strong>25% 数学与推理</strong>、<strong>17% 代码</strong>、<strong>8% 多语言</strong>。他们用小模型 scaling law 实验反复挑配比，训练中途还会上采样数学/非英、下采样低质子集。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2407.21783" target="_blank" rel="noopener">arXiv:2407.21783</a></div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-paper">论文</span>
+          <h3>RegMix / DoReMi：别只靠拍脑袋</h3>
+          <p>RegMix（2024）用大量小模型 + 回归预测「哪种混合物更好」，再训大模型；称可用约 DoReMi 10% 算力达到可比效果。关键发现：配比可让单任务差到约 14.6%；网页语料与下游正相关往往强过「看起来更高质」的维基；领域交互常违背常识。</p>
+          <div class="links">
+            <a href="https://arxiv.org/abs/2407.01492" target="_blank" rel="noopener">RegMix arXiv:2407.01492</a>
+            <a href="https://arxiv.org/abs/2305.10429" target="_blank" rel="noopener">DoReMi arXiv:2305.10429</a>
+          </div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-internal">内部脱敏</span>
+          <h3>中训练合版：总预算固定 = 零和博弈</h3>
+          <p>加长文/Agent 就会挤 STEM/知识；垂类数据未必涨垂类榜。实操是 Exp 逐版只改一两项，用伴生 SFT 裁决。</p>
+        </div>
+      </div>
+
+      <h3 style="margin-top:32px;">若总中训练预算 = 3T token，topic 怎么切？（教学示意）</h3>
+      <p style="color:var(--mute);font-size:0.92rem;margin-bottom:8px;">
+        下表是「面向 Agent + 长文产品」的<strong>示意配方</strong>，用来理解数量级；不是某家生产定版。数字按 3T 中训练总额估算。
+      </p>
+      <table class="recipe">
+        <thead>
+          <tr><th>Topic</th><th>示意占比</th><th>约合 token</th><th>主要干什么</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>代码 + Agent 轨迹</td><td class="num">45%–65%</td><td class="num">1.4T–2.0T</td><td>SWE / 工具调用 / 多步任务</td></tr>
+          <tr><td>长文 / 长上下文</td><td class="num">8%–15%</td><td class="num">0.25T–0.45T</td><td>定位、全覆盖、状态追踪</td></tr>
+          <tr><td>STEM（题 + 论文书）</td><td class="num">8%–18%</td><td class="num">0.25T–0.55T</td><td>数理化推理；只换 CoT 往往不够</td></tr>
+          <tr><td>知识 / 垂类 / 改写</td><td class="num">5%–15%</td><td class="num">0.15T–0.45T</td><td>事实问答；注意去重别删权威源</td></tr>
+          <tr><td>一阶段 replay</td><td class="num">5%–12%</td><td class="num">0.15T–0.35T</td><td>防止忘掉通用能力</td></tr>
+          <tr><td>其他（逻辑、多语言等）</td><td class="num">其余</td><td class="num">视目标</td><td>用消融决定去留</td></tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top:28px;">小白操作流程（配比怎么「算」出来）</h3>
+      <ol style="color:var(--mute);padding-left:1.2rem;font-size:0.95rem;">
+        <li>写下产品必须赢的榜（如 SWE、长文、SimpleQA）和绝不能掉的榜。</li>
+        <li>用小 ladder 扫 20–100 组配比（RegMix/人工网格都行）。</li>
+        <li>每组看：val loss + 伴生 SFT 后的 domain bench（别只看 0-shot ICL）。</li>
+        <li>放大到生产前做长跑 derisk；短训看不到的风险常在 1T token 之后才冒出来。</li>
+        <li>定版后冻结评测协议，避免「换榜车」导致假涨跌。</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- VLM -->
+  <section id="vlm-how">
+    <div class="wrap reveal">
+      <p class="eyebrow">公开研究 · 多模态</p>
+      <h2>VLM 怎么改造？从文本到「能看图」</h2>
+      <p class="lede">
+        多模态不是把图片随便塞进文本配比。公开强模型通常分阶段：先视觉编码器，再图文对齐，再端到端，并把 OCR / 交织图文 / 视频 / Agent 分开做质量。
+      </p>
+
+      <div class="post-grid">
+        <div>
+          <h3>阶段怎么切</h3>
+          <p>
+            常见三步：① 训 / 增强 ViT（视觉塔）；② 多模态数据对齐（caption、VQA、交织图文）；③ 解冻更多参数做端到端，并拉长上下文。
+            <span class="src src-paper">论文</span> Qwen2-VL / Qwen2.5-VL 技术报告描述了 native dynamic resolution 与分阶段训练。
+          </p>
+        </div>
+        <div>
+          <h3>数据要哪些</h3>
+          <p>
+            公开实践常覆盖：图文 caption、交织图文、OCR/文档、视觉知识、多模态题、定位/grounding、视频、GUI Agent。
+            Qwen2.5-VL 称预训练语料从约 1.2T 扩到约 <strong>4.1T</strong> 多模态相关 token，并在不同阶段调整各类占比。
+          </p>
+        </div>
+        <div>
+          <h3>后训练注意</h3>
+          <p>
+            Qwen2.5-VL 的 SFT 约 200 万条，条目上纯文本 : 多模态 ≈ 50:50，但多模态条目更吃 token/算力；其后还有 DPO。
+            训练时常见：ViT 在部分对齐阶段冻结，避免把视觉塔冲坏。
+          </p>
+        </div>
+      </div>
+
+      <table class="recipe" style="margin-top:24px;">
+        <thead>
+          <tr><th>改造动作</th><th>小白理解</th><th>来源</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Dynamic resolution / 动态分辨率</td>
+            <td>图不再强制缩成固定小格，按原图生成可变数量视觉 token，更接近「看得清细节」</td>
+            <td><span class="src src-paper">Qwen2-VL</span> arXiv:2409.12191</td>
+          </tr>
+          <tr>
+            <td>Interleaved 图文清洗</td>
+            <td>网页图文穿插很吵；要按「图文相关性 / 互补性 / 信息密度」打分过滤</td>
+            <td><span class="src src-paper">Qwen2.5-VL</span> arXiv:2502.13923</td>
+          </tr>
+          <tr>
+            <td>能力对齐检查</td>
+            <td>把评测与存量数据都打上能力标签（定位、计数、多图…），看缺口再补数</td>
+            <td><span class="src src-internal">内部脱敏</span> Data Probe 思路</td>
+          </tr>
+          <tr>
+            <td>控制「加图」别伤纯文本</td>
+            <td>混训时盯纯文本榜；图比例过高可能拖垮语言能力，需要 replay 文本</td>
+            <td><span class="src src-rule">方法</span> + <span class="src src-internal">内部经验</span></td>
+          </tr>
+          <tr>
+            <td>先建多模态 val loss</td>
+            <td>小模型 few-shot 多模态分数很抖，配比搜索会缺信号</td>
+            <td><span class="src src-internal">内部脱敏</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="links" style="margin-top:10px;font-size:0.85rem;">
+        <a href="https://arxiv.org/abs/2409.12191" target="_blank" rel="noopener">Qwen2-VL</a> ·
+        <a href="https://arxiv.org/abs/2502.13923" target="_blank" rel="noopener">Qwen2.5-VL</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- PUBLIC INSIGHTS -->
+  <section id="public">
+    <div class="wrap reveal">
+      <p class="eyebrow">公开论文 · 值得记住的 Insight</p>
+      <h2>不止周报：外面已经验证过的结论</h2>
+      <p class="lede">下面每条都尽量可点进原文。绿色标签 = 公开论文；橙色 = 内部脱敏经验（便于对照）。</p>
+
+      <div class="insight-list-pub">
+        <div class="insight-pub">
+          <span class="src src-paper">Chinchilla 2022</span>
+          <h3>算力固定时，模型和数据应大致同比放大</h3>
+          <p>过小数据训过大模型 = 欠训。经验比例约 20 token/参数；但这是「计算最优」而非「质量最优上限」。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2203.15556" target="_blank" rel="noopener">arXiv:2203.15556</a></div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-paper">Llama 3 2024</span>
+          <h3>用小模型预测大模型的数据配比，再上正式训练</h3>
+          <p>知识分类 + scaling law 实验选 mix；最终约 50/25/17/8（通用/数学推理/代码/多语言），训练中途还会动态调。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2407.21783" target="_blank" rel="noopener">arXiv:2407.21783</a></div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-paper">RegMix 2024</span>
+          <h3>配比是一等公民，且常常反直觉</h3>
+          <p>自动搜索混合物；网页语料相关性可能强过「高端」维基；领域之间互相牵扯，需要整体建模而不是逐个加料。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2407.01492" target="_blank" rel="noopener">arXiv:2407.01492</a></div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-paper">DeepSeek-V3 2024</span>
+          <h3>强开源底座 ≈ 十五 T 量级高质量 token + 稳定训练</h3>
+          <p>14.8T 预训练后做上下文扩展，再 SFT/RL。说明「大参数」仍要配「大数据 + 工程稳定性」。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2412.19437" target="_blank" rel="noopener">arXiv:2412.19437</a></div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-paper">Qwen2.5-VL 2025</span>
+          <h3>多模态要扩数据、分阶段，并认真洗交织图文</h3>
+          <p>多模态预训练扩到约 4.1T；动态分辨率；SFT 条目 50/50 文/多模但算力不等价；交织数据需相关性打分。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2502.13923" target="_blank" rel="noopener">arXiv:2502.13923</a></div>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-paper">DoReMi 2023</span>
+          <h3>按 domain 损失动态调采样权重</h3>
+          <p>早期自动配比代表作之一：让模型在难学的 domain 上多看一点。后来 RegMix 等在算力效率上继续推进。</p>
+          <div class="links"><a href="https://arxiv.org/abs/2305.10429" target="_blank" rel="noopener">arXiv:2305.10429</a></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+
   <!-- NEEDS -->
   <section id="needs">
     <div class="wrap reveal">
@@ -949,7 +1234,7 @@
     <div class="wrap reveal">
       <p class="eyebrow">04 · 各 Topic 是什么</p>
       <h2>中训练的「专业课」地图</h2>
-      <p class="lede">点开每个 topic：它解决什么问题、怎么做、周报里最该记住的一条。</p>
+      <p class="lede">点开每个 topic：它解决什么问题、怎么做。橙色 cite 多为内部周报脱敏；上面「数据量 / 配比 / VLM / 公开 Insight」才是公开论文对照。</p>
 
       <div class="topic-rail" role="tablist">
         <button class="topic-tab active" data-tab="code" type="button">02 代码</button>
@@ -1170,6 +1455,7 @@
   </section>
 
 
+
   <!-- POSTTRAIN -->
   <section id="posttrain">
     <div class="wrap reveal">
@@ -1249,8 +1535,8 @@
   <!-- INSIGHTS -->
   <section id="insights">
     <div class="wrap reveal">
-      <p class="eyebrow">05 · 如果只记住七条</p>
-      <h2>周报里反复出现的硬 Insight</h2>
+      <p class="eyebrow">内部经验 · 脱敏</p>
+      <h2><span class="src src-internal">内部周报</span>反复出现的硬 Insight</h2>
       <p class="lede">这些不是口号，是已经付出实验成本的结论。训练 1T 时，把它们当成默认检查项。</p>
 
       <div class="insight-list">
