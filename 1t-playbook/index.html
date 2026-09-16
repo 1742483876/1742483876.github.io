@@ -671,9 +671,9 @@
         <li><a href="#basics">先搞懂</a></li>
         <li><a href="#scale">数据量</a></li>
         <li><a href="#mix">配比</a></li>
+        <li><a href="#web">网页管线</a></li>
         <li><a href="#vlm-how">VLM</a></li>
         <li><a href="#public">公开 Insight</a></li>
-        <li><a href="#posttrain">后训练</a></li>
         <li><a href="#glossary">术语表</a></li>
       </ul>
     </div>
@@ -684,7 +684,7 @@
       <h1 class="hero-brand">1T<br /><em>Playbook</em></h1>
       <p class="hero-lead">
         小白向：1T 要多少数据、配比怎么配、各 topic 大概多少、VLM 怎么改——
-        综合公开论文与可复述的方法论。每条 insight 都标了来源，方便你对照原文。
+        综合公开论文与可复述的方法论；并补充一阶段「网页管线」时间线。每条 insight 都标了来源。
       </p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#scale">先看要多少数据 →</a>
@@ -1066,6 +1066,139 @@
   </section>
 
   <!-- VLM -->
+
+  <!-- WEB PIPELINE -->
+  <section id="web">
+    <div class="wrap reveal">
+      <p class="eyebrow">内部脱敏 · 网页进展</p>
+      <h2><span class="src src-internal">网页进展</span>一阶段网页都在干什么？</h2>
+      <p class="lede">
+        网页不是「爬下来就能训」。真正的管线是：<strong>获取 → 解析 → 质量/体裁 → 去重 →（可选）修复/AI 检测 → 合版实验</strong>。
+        下面按时间线回顾近期干了啥，再单列 0916 最新 insight。来源为内部「网页进展」文档（脱敏教学版）。
+      </p>
+
+      <h3 style="margin-top:8px;">管线地图（小白版）</h3>
+      <table class="recipe">
+        <thead>
+          <tr><th>环节</th><th>在解决什么</th><th>你会听到的词</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>网页生产 / 合版</td>
+            <td>把清洗后的英/中/小语种网页打成可训的版本（D4 → D4.1 → D4.2 → D4.3），用小模型验证「等质扩量」</td>
+            <td>D4.x、等质扩量、SEO、子句去重</td>
+          </tr>
+          <tr>
+            <td>通用解析</td>
+            <td>从 HTML 抽出正文/代码块，去掉导航广告；还要给 VLM 抽正文图、做图文 interleave</td>
+            <td>V4.2 / V4.3 解析、阈值、MinerU、RefineX</td>
+          </tr>
+          <tr>
+            <td>体裁 / 垂类分类</td>
+            <td>判断是文章、列表、登录页、代码页、论文… 避免把登录页/空壳列表当正文喂模型</td>
+            <td>体裁头、登录页、列表页后处理</td>
+          </tr>
+          <tr>
+            <td>语义去重</td>
+            <td>同质网页太多会浪费 token、还可能伤综合能力；用 embedding 聚类降冗余</td>
+            <td>0.9 阈值、harrier/bge emb、低价值降采样</td>
+          </tr>
+          <tr>
+            <td>AI 生成检测</td>
+            <td>过滤机写软文；删太狠会掉榜，所以走保守策略</td>
+            <td>binoculars、DDL、删除 &lt;10%</td>
+          </tr>
+          <tr>
+            <td>数据获取 / OCR</td>
+            <td>漫爬扩源、PDF join、图片里的公式/化学式识别</td>
+            <td>Swin + Nougat 两阶段</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top:28px;">以前都干了啥（时间线）</h3>
+      <div class="insight-list-pub">
+        <div class="insight-pub">
+          <span class="src src-internal">~0812–0819</span>
+          <h3>解析升级 + RefineX 立项目 + 分类后处理</h3>
+          <p>
+            <strong>解析 V4.2</strong>：代码网页在阈值 0.9 时正文重叠率约 95%+，噪音更低；相对 V4.0，代码 topic 训练约 <em>+1.4pp</em>、overall 约 <em>+0.74pp</em>。
+            空抽略升（~0.2%）可接受。发现部分代码页原始就没格式（约 5–10%），需要单独 reformat。
+            <br /><strong>RefineX</strong> 立项：用大模型标「该删哪」，再蒸馏成小模型，专治解析误抽噪音 / block 内噪音，预估可删 5–10% token。
+            <br /><strong>体裁</strong>：列表页加保守后处理（看最长文本块、正文类概率），避免误删高价值列表；垂类头用更好的 pooling（multi-query attn）提公式召回。
+            <br /><strong>图文</strong>：从待解析网页抽正文图（英/中/小语种累计千亿级图片量级）供 interleave。
+          </p>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-internal">~0826–0827</span>
+          <h3>D4.1 等质扩量见效；去重别删太狠；AI 检测换路线</h3>
+          <p>
+            <strong>D4.1 生产</strong>：英文等质扩量约 <em>+1.4T</em>，A1B 约 <em>+0.5pp</em>；中文 SEO 前约 <em>+1.29T / A3B +0.46pp</em>，SEO 后剩约 0.9T 继续观察；小语种约 3.2T→4.4T。
+            <br /><strong>D4.2 英文</strong>：相对 D4.1 尚未稳定领先，要消融（低质泛滥回捞、质量分↔语义去重顺序、harrier emb 阈值）。
+            <br /><strong>语义去重</strong>：单做「低价值子簇降采样」有效；硬叠「多样性+价值」并多删 ~12 亿会伤 <em>mmlu_pro</em>——结论是<strong>降冗余不能过度</strong>。动态按簇调阈值在开发，准备上 D4.3。
+            <br /><strong>AI 检测</strong>：纯分类器泛化差；统计+学习的 DDL 超 binoculars，准备工程化替换；过滤先走<strong>整体删除 &lt;10%</strong> 的保守路线。
+          </p>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-internal">0826 续</span>
+          <h3>评测坑：短 answer 的 val loss 会骗人</h3>
+          <p>
+            V4.2 解析排版更好 → 模型更爱在 QA 之间加空格；若评测把 question+answer 无分隔符粘在一起、且答案只有 1 个 token，
+            val loss 会被「第一个 token」主导，出现「解析变好但某 topic val loss 变差」的假象。长答案评测不受影响——要看 case，别只看一个数。
+          </p>
+        </div>
+      </div>
+
+      <h3 style="margin-top:28px;">最新一期 · 20260916</h3>
+      <div class="insight-list-pub">
+        <div class="insight-pub">
+          <span class="src src-internal">0916 · 生产</span>
+          <h3>D4.3 中文 / 小语种开训</h3>
+          <p>
+            中文 baseline 管线极简：<strong>解析 + 质量分 + 语义去重 + 子句去重</strong>（已训约 16/36k）；多样性&amp;质量平衡数据另备。
+            小语种同步看实验 setting。前序库存：中文约 341 亿页解析、小语种约 512 亿页解析，质量分 / harrier emb 在刷。
+          </p>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-internal">0916 · 扩源</span>
+          <h3>下一阶段 token 从哪来</h3>
+          <p>
+            三条思路：① 分语种+学科抽页 → LLM 造 query → 搜索引擎捞 URL → 对库存查覆盖；
+            ② 摸清<strong>登录态</strong>站点缺口；③ <strong>低质泛滥回捞</strong>（曾干掉约 1 万亿页量级，回捞 2% 也有约 200 亿）。
+            另有内部调研：如何把预训练从十几 T 想到更大盘、以及闭源/登录态数据全景。
+          </p>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-internal">0916 · RefineX</span>
+          <h3>小模型版 RefineX 在评估</h3>
+          <p>
+            Gemini 标 status（cleaned / partially_cleaned / unfixable）→ 由 origin 与 refine 文本构建 <em>del</em> 操作（防幻觉啃词）→
+            约 43 万条 SFT 到 Qwen 小模型。目标：把「修解析噪音」产品化，而不只靠每次调大模型。
+          </p>
+        </div>
+        <div class="insight-pub">
+          <span class="src src-internal">0916 · 解析/分类/OCR</span>
+          <h3>V4.3 选型、登录页纠错、公式准召大涨</h3>
+          <p>
+            解析 V4.3 暂定 epoch4；相对 V4.2 的 GSB 约 good 60% / same 9% / bad 31%，全量还在比。
+            体裁：重训修复「其他/登录页」误标，全库约 4% diff、可接受；并扩标准规范/手册/API 等知识向垂类。
+            公式 OCR 两阶段（Swin 粗召 + Nougat 精识），漫爬抽测准召约从 0.7 → <strong>0.9+</strong>；漫爬扩源预计解析流量 +30%。
+          </p>
+        </div>
+      </div>
+
+      <div class="callout-note" style="margin-top:20px;">
+        <strong>小白可带走的五条：</strong>
+        ① 等质扩量（同质量多喂）在 D4.1 上被验证过，是网页侧扩盘主旋律；
+        ② 解析阈值升高 = 更干净但可能少抽，要用训练指标而不是只看抽取率；
+        ③ 去重/打 AI 文都「宜保守」——多删容易伤综合榜；
+        ④ RefineX = 解析后的第二道「外科手术」，专治残留噪音；
+        ⑤ 下一跳增量来自扩源、登录态、低质回捞，而不只是再拧一次过滤旋钮。
+      </div>
+    </div>
+  </section>
+
+
   <section id="vlm-how">
     <div class="wrap reveal">
       <p class="eyebrow">公开研究 · 多模态</p>
@@ -1653,6 +1786,13 @@
   "1T": "一万亿（trillion）。「1T 参数」= 模型权重规模；「1T token」= 训练看过的文本量。两者不是一回事。",
   "参数": "模型里需要学习的权重数量。参数越大，通常表达能力上限越高，但也更吃显存与算力。",
   "Pretrain": "预训练：用海量通用文本先学语言和世界知识，相当于打底子。",
+  "RefineX": "解析后的文本修复：大模型标出该删的噪音，再蒸馏成小模型执行删除。专治误抽导航/广告和 block 内脏内容。",
+  "等质扩量": "在质量分布不变（或可比）的前提下增加 token 量，用来验证「多喂同质数据是否还涨点」。",
+  "语义去重": "用 embedding 把语义相近的网页聚在一起，按阈值丢掉冗余副本，避免模型反复看同一类同质文。",
+  "低质泛滥": "海量低信息密度网页（软文、站群、空洞页）。可整段干掉，也可事后按质量分回捞一小部分。",
+  "体裁分类": "判断网页是文章/列表/登录页/代码页等类型，便于过滤或差异化采样。",
+  "DDL": "DetectAnyLLM 一类方法：在可微统计量上再训练，用来识别 AI 生成文本；内部实验显示可超越纯统计的 binoculars。",
+
   "预训练": "用海量通用文本先学语言和世界知识，相当于打底子。也叫 Pretrain / 一阶段。",
   "Midtrain": "中训练：在预训练之后、后训练之前，用更高密度、更偏任务的数据继续训（代码、长文、Agent 等）。",
   "中训练": "在预训练之后、后训练之前，用更高密度、更偏任务的数据继续训。也叫 Midtrain。",
