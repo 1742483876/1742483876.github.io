@@ -1,0 +1,15 @@
+{
+  "name": "脉冲 · 历史复盘",
+  "short_name": "脉冲复盘",
+  "description": "公开历史 K 线、信号解释与冻结策略回测。非实时行情。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d1418",
+  "theme_color": "#101817",
+  "icons": [
+    {"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}
