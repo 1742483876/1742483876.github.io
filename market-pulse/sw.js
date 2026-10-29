@@ -1,5 +1,5 @@
 'use strict';
-const BUILD='72c6e1c7cb6d0bb1';
+const BUILD='89a0dd7d8ce74e93';
 const SCOPE=new URL(self.registration.scope);
 const PREFIX='market-pulse-mobile:'+SCOPE.pathname+':';
 const SHELL=PREFIX+'shell:'+BUILD, DATA=PREFIX+'data:v2';
@@ -18,6 +18,7 @@ let writes=Promise.resolve();
 const pendingData=new Map();
 
 // Exact query identity is essential: no ignoreSearch or fallback to another v.
+// Only legacy unversioned S summaries may gain an alias after body validation.
 function dataIdentity(value){
   try{
     const raw=typeof value==='string'?value:value.url;
@@ -98,9 +99,27 @@ async function previousBuildFallback(request,id,stored){
 async function cachedData(request){
   const cache=await caches.open(DATA),hit=await cache.match(request);
   if(hit)return hit;
+  const names=(await caches.keys()).reverse(),stores=[cache];
   // A quota-constrained migration may leave an exact legacy entry in place.
-  for(const name of (await caches.keys()).reverse()){
-    if(name.startsWith(PREFIX+'data:')&&name!==DATA){const legacy=await caches.open(name),stored=await legacy.match(request);if(stored)return stored;}
+  for(const name of names){
+    if(name.startsWith(PREFIX+'data:')&&name!==DATA){const legacy=await caches.open(name),stored=await legacy.match(request);if(stored)return stored;stores.push(legacy);}
+  }
+  const id=dataIdentity(request);
+  if(id?.kind==='signal-index'&&id.version){
+    // Older shells saved this one directory without a query. Reuse it only
+    // when its declared snapshot exactly matches the requested version.
+    const unversioned=new URL(id.url);unversioned.search='';
+    for(const store of stores){
+      const stored=await store.match(unversioned.href);if(!stored?.ok)continue;
+      try{if(!validPayload(await stored.clone().json(),id))continue;}catch(_){continue;}
+      const copy=stored.clone();
+      const pending=writes.catch(()=>{}).then(async()=>{
+        // Keep its original build/source headers: this is a saved response,
+        // not newly fetched data. A quota error must not lose the readable body.
+        try{if(!await cache.match(request)){await cache.put(request,copy);await limitEntries(cache,90);}}catch(_){}
+      });
+      writes=pending;await pending;return stored;
+    }
   }
   return null;
 }
@@ -160,11 +179,17 @@ async function refreshData(request,id,stored,cacheMode='no-store'){
   }catch(_){return stored?previousBuildFallback(request,id,stored):unavailable();}
 }
 async function refreshOnce(request,id,stored,cacheMode){
-  const key=request.url;
+  // A strict retry must not inherit an ordinary background refresh's stale
+  // fallback. Repeated strict retries still share one source request.
+  const key=(cacheMode==='reload'?'reload:':'normal:')+request.url;
   if(!pendingData.has(key))pendingData.set(key,refreshData(request,id,stored,cacheMode).finally(()=>pendingData.delete(key)));
   return (await pendingData.get(key)).clone();
 }
 async function dataResponse(request,id,background,cacheMode='no-store'){
+  // An explicit retry may follow a stricter page-level validation failure.
+  // Re-read this exact version, without returning the rejected cached body on
+  // failure or deleting other saved snapshots.
+  if(request.cache==='reload')return refreshOnce(request,id,null,'reload');
   let stored=null;try{stored=await cachedData(request);}catch(_){}
   if(stored){
     if(!id.version){

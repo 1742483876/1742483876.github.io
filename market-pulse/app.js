@@ -86,13 +86,20 @@
   function rememberBrowse(){if(state.pool==='archive')return;saveBrowse(browserStorage,{symbol:state.asset?.code,range:state.range,profile:state.profile,phase:state.phase});}
   $('chartRange').value=String(state.range);
   const memory=new Map(),pendingJSON=new Map();
-  async function readJSON(path,version,validate=data=>data){
+  async function fetchJSON(safe,reload){
+    const controller=safe==='data/catalog.json'?new AbortController():null;let timer;
+    const body=(async()=>{const response=await fetch(safe,{cache:reload?'reload':'no-cache',...(controller?{signal:controller.signal}:{})});if(!response.ok)throw new Error(response.status===404?'这份快照尚未发布，或离线时未曾缓存。':'暂时无法读取快照，请联网后重试。');return response.json();})();
+    if(!controller)return body;
+    try{return await Promise.race([body,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('主图行情目录读取超时，请重试。')),15000);})]);}finally{clearTimeout(timer);controller.abort();}
+  }
+  async function readJSON(path,version,validate=data=>data,reload=false){
     let safe=safePath(path);if(version)safe+='?v='+encodeURIComponent(version);
+    if(reload)memory.delete(safe);
     if(memory.has(safe)){try{return validate(memory.get(safe));}catch(error){memory.delete(safe);throw error;}}
     // First visits may not yet have a controlling service worker. Share the
     // pending body too, so A→B→A never downloads the same version twice. Only
     // caller-validated raw data enters memory; a wrong identity can be retried.
-    const request=pendingJSON.get(safe)||(async()=>{const response=await fetch(safe,{cache:'no-cache'});if(!response.ok)throw new Error(response.status===404?'这份快照尚未发布，或离线时未曾缓存。':'暂时无法读取快照，请联网后重试。');return response.json();})();
+    const request=pendingJSON.get(safe)||fetchJSON(safe,reload);
     pendingJSON.set(safe,request);
     try{const data=await request,accepted=validate(data);if(!memory.has(safe)){memory.set(safe,data);const archiveKeys=[...memory.keys()].filter(k=>k.startsWith('data/archive/charts/'));while(archiveKeys.length>12)memory.delete(archiveKeys.shift());window.PulseOffline?.remember(safe);}return accepted;}
     catch(error){memory.delete(safe);throw error;}
@@ -196,9 +203,13 @@
   canvas.addEventListener('pointercancel',e=>{if(drag?.id===e.pointerId){drag=null;state.hover=null;drawChart();}});
   canvas.addEventListener('pointerleave',()=>{if(!drag){state.hover=null;drawChart();}});new ResizeObserver(drawChart).observe(canvas);
   const offline=()=>{if(window.PulseOffline)return;$('offlineStatus').textContent=navigator.onLine?'按需读取快照；浏览过的数据可尝试离线查看。':'当前离线 · 仅能打开本机已缓存的快照。';};window.addEventListener('online',offline);window.addEventListener('offline',offline);offline();
-  async function boot(){try{const c=await readJSON('data/catalog.json',undefined,coreCatalog);state.catalog=c;$('assetSearch').disabled=false;$('archiveOpen').disabled=false;$('snapshotMeta').textContent=`${c.assets.length} 个公开标的 · 发布 ${stampLabel(c.generated_at)} · 行情快照 ${stampLabel(c.snapshot_at)}`;const route=startupRoute(location.search);state.startupRoute=route;const chosen=initialAsset(c.assets,location.search,savedBrowse.symbol);if(route.pool==='core'&&chosen.invalidSymbol)state.startupRoute=null;if(chosen.asset.market==='US'&&!savedBrowse.phase)state.phase='recent';$('browseStatus').textContent=chosen.invalidSymbol?'链接中的标的不在公开目录中，已安全回到上次标的或默认标的。':'';if(route.pool==='archive'){state.market='CN';await openArchive(route.code,true);}else{if(route.invalidArchive)$('browseStatus').textContent='档案链接无效，已打开研究池。';selectAsset(chosen.asset.code,true);}if('IntersectionObserver'in window){const observer=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting)){ensureResearch();observer.disconnect();}},{rootMargin:'250px'});observer.observe($('research'));}else ensureResearch();}catch(e){$('assetSearch').disabled=true;$('snapshotMeta').textContent=e.message;$('chartEmpty').innerHTML=`${escape(e.message)}<br><button type="button" id="retryBoot">重新读取</button>`;$('retryBoot')?.addEventListener('click',boot);$('pickerSelection').textContent='目录尚不可用';}}
+  async function boot(reload=false){try{const c=await readJSON('data/catalog.json',undefined,coreCatalog,reload);state.catalog=c;$('assetSearch').disabled=false;$('archiveOpen').disabled=false;$('snapshotMeta').textContent=`${c.assets.length} 个公开标的 · 发布 ${stampLabel(c.generated_at)} · 行情快照 ${stampLabel(c.snapshot_at)}`;const route=startupRoute(location.search);state.startupRoute=route;const chosen=initialAsset(c.assets,location.search,savedBrowse.symbol);if(route.pool==='core'&&chosen.invalidSymbol)state.startupRoute=null;if(chosen.asset.market==='US'&&!savedBrowse.phase)state.phase='recent';$('browseStatus').textContent=chosen.invalidSymbol?'链接中的标的不在公开目录中，已安全回到上次标的或默认标的。':'';if(route.pool==='archive'){state.market='CN';await openArchive(route.code,true);}else{if(route.invalidArchive)$('browseStatus').textContent='档案链接无效，已打开研究池。';selectAsset(chosen.asset.code,true);}if('IntersectionObserver'in window){const observer=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting)){ensureResearch();observer.disconnect();}},{rootMargin:'250px'});observer.observe($('research'));}else ensureResearch();}catch(e){$('assetSearch').disabled=true;$('snapshotMeta').textContent=e.message;$('chartEmpty').innerHTML=`${escape(e.message)}<br><button type="button" id="retryBoot">重新读取</button>`;$('retryBoot')?.addEventListener('click',startBoot);$('pickerSelection').textContent='目录尚不可用';}}
   window.addEventListener('pulse:theme',()=>requestAnimationFrame(drawChart));
   window.addEventListener('pulse:page',e=>{if(e.detail?.page==='chart')requestAnimationFrame(drawChart);if(e.detail?.page==='research')ensureResearch();});
-  boot();
+  let bootTask=null,bootPending=false;
+  function startBoot(){if(bootPending)return bootTask;bootPending=true;bootTask=boot(bootTask!==null).finally(()=>{bootPending=false;});return bootTask;}
+  async function sharedCoreCatalog(){if(!state.catalog)await bootTask;if(!state.catalog)throw new Error('主图行情目录读取失败，请重试或重新载入页面。');return state.catalog;}
+  window.PulseCoreCatalog={get:sharedCoreCatalog,retry:async()=>{if(!state.catalog)await startBoot();return sharedCoreCatalog();}};
+  startBoot();
   window.PulseOffline?.start({onStatus:text=>{$('offlineStatus').textContent=text;}});
 }());
