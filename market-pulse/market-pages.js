@@ -129,6 +129,35 @@
   function coreLink(code, coreCodes) {
     return typeof code === 'string' && /^[A-Za-z0-9._-]{1,32}$/.test(code) && new Set(coreCodes || []).has(code) ? `./?symbol=${encodeURIComponent(code)}` : null;
   }
+  function archiveDirectory(data) {
+    if (data?.schema_version !== 'cn-archive-1' || data.archive_only !== true || !Array.isArray(data.assets) || typeof data.generated_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(data.generated_at) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(data.generated_at) || !Number.isFinite(Date.parse(data.generated_at))) throw new Error('历史档案目录格式或版本无效。');
+    const assets = new Map();
+    for (const item of data.assets) {
+      if (!item || !/^(?:sh|sz|bj)\d{6}$/.test(item.code || '') || assets.has(item.code) || item.market !== 'CN' || item.currency !== 'CNY' || item.archive_only !== true || item.chart_url !== `data/archive/charts/${item.code}.json` || typeof item.name !== 'string' || !item.name.trim() || !Number.isInteger(item.bars_count) || item.bars_count <= 0 || validDate(item.start) === null || validDate(item.end) === null || item.start > item.end) throw new Error('历史档案目录标的、身份或路径未通过校验。');
+      assets.set(item.code, {code:item.code, name:item.name, market:'CN', currency:'CNY', end:item.end});
+    }
+    return {version:data.generated_at, assets};
+  }
+  function archiveLink(item, directory) {
+    const found = directory?.assets.get(item?.code);
+    return item?.market === 'CN' && item.currency === 'CNY' && found && typeof item.name === 'string' && item.name.trim() === found.name.trim() ? `./?archive=${encodeURIComponent(found.code)}` : null;
+  }
+  const BROWSE_KEY = 'pulse-mobile-sector-browse-v1';
+  function sectorPreferences(input) {
+    const markets = {}, text = value => typeof value === 'string' ? value.slice(0, 160) : '';
+    for (const market of ['CN', 'HK', 'US']) {
+      const row = input?.markets?.[market]; if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+      markets[market] = {sector:typeof row.sector === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(row.sector) ? row.sector : 'all', query:text(row.query), sort:row.sort === 'cap' ? 'cap' : 'code', listPage:Number.isInteger(row.listPage) ? Math.max(1, Math.min(1000, row.listPage)) : 1, fundQuery:text(row.fundQuery)};
+    }
+    return {version:1, markets, archiveRequested:input?.archiveRequested === true};
+  }
+  function readSectorPreferences(storage) {
+    try { const raw = storage?.getItem(BROWSE_KEY); if (typeof raw !== 'string' || raw.length > 8192) return sectorPreferences(null); const data = JSON.parse(raw); return sectorPreferences(data?.version === 1 ? data : null); }
+    catch (_) { return sectorPreferences(null); }
+  }
+  function writeSectorPreferences(storage, markets, archiveRequested) {
+    try { storage?.setItem(BROWSE_KEY, JSON.stringify(sectorPreferences({markets:Object.fromEntries(markets), archiveRequested}))); } catch (_) {}
+  }
   function validCaps(rows, currency, unit) {
     return unit === 'base_currency' ? (rows || []).filter(r => finite(r.market_cap) && r.market_cap > 0 && (!r.currency || r.currency === currency) && !['etf', 'fund'].includes(r.kind)) : [];
   }
@@ -164,20 +193,23 @@
     if (!groups.length) return '<p class="mp-note">没有匹配的 ETF。可按名称、代码或板块名称搜索。</p>';
     return groups.map(group => `<details class="mp-fund-group" ${group.priority || String(query).trim() ? 'open' : ''}><summary><span>${esc(group.priority ? '重点资产 · ' : '')}${esc(group.name)}</span><small>${group.funds.length} 只 ETF</small></summary>${group.note ? `<p class="mp-note">${esc(group.note)}</p>` : ''}<div class="mp-funds">${group.funds.map(f => { const link = coreLink(f.code, coreCodes); const body = `${esc(f.name || f.code)}<small>${esc(f.code)} · ${link ? '查看已发布 K 线' : '日 K 待补'}</small>`; return link ? `<a href="${esc(link)}">${body}</a>` : `<span>${body}</span>`; }).join('')}</div></details>`).join('');
   }
-  function fundsHTML(data, coreCodes) {
+  function fundsHTML(data, coreCodes, query = '') {
     const funds = (data.funds || []).filter(f=>(!f.market||f.market===data.market)&&(!f.currency||f.currency===data.currency));
     if (!funds.length) return '';
-    return `<section class="mp-card" id="mpFundsPanel"><div class="mp-card-head"><h2>板块 / 宽基 ETF 入口</h2><span>与公司市值分开</span></div><p class="mp-note">ETF 是基金份额，不计入公司的数量和行业市值。黄金、原油、美债是资产分类入口，不是投资评级。</p><label class="mp-fund-search">搜索 ETF<input id="mpFundSearch" type="search" placeholder="ETF 名称、代码或板块" autocomplete="off"></label><div id="mpFundGroups">${fundGroupsHTML(data, coreCodes)}</div></section>`;
+    return `<section class="mp-card" id="mpFundsPanel"><div class="mp-card-head"><h2>板块 / 宽基 ETF 入口</h2><span>与公司市值分开</span></div><p class="mp-note">ETF 是基金份额，不计入公司的数量和行业市值。黄金、原油、美债是资产分类入口，不是投资评级。</p><label class="mp-fund-search">搜索 ETF<input id="mpFundSearch" type="search" placeholder="ETF 名称、代码或板块" autocomplete="off" value="${esc(query)}"></label><div id="mpFundGroups">${fundGroupsHTML(data, coreCodes, query)}</div></section>`;
   }
   function pcrRows(data, id) {
     const selected = (data.pcr_series || []).find(s => s.id === id);
     return selected ? {series: selected, rows: datedRows(selected.rows, ['value'])} : {series: null, rows: []};
   }
-  const exported = {esc, num, validDate, safePath, cap, datedRows, alignSeries, viewRange, zoomRange, panRange, pointerIndex, lineSegments, normalizeDirectory, directoryRows, coreLink, validCaps, pcrRows, validTrinRows, fundGroups, fundGroupsHTML, fundsHTML};
+  const exported = {esc, num, validDate, safePath, cap, datedRows, alignSeries, viewRange, zoomRange, panRange, pointerIndex, lineSegments, normalizeDirectory, directoryRows, coreLink, archiveDirectory, archiveLink, sectorPreferences, readSectorPreferences, writeSectorPreferences, validCaps, pcrRows, validTrinRows, fundGroups, fundGroupsHTML, fundsHTML};
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof document === 'undefined') return;
 
-  const state = {page: 'help', market: 'CN', serial: 0, catalog: null, sectors: null, environment: null, sector: 'all', query: '', sort: 'code', listPage: 1, curves: new Set(['price', 'breadth', 'pcr']), overlay: true, breadthMa: true, pcr: null};
+  const state = {page: 'help', active: false, market: 'CN', serial: 0, catalog: null, sectors: null, environment: null, sector: 'all', query: '', sort: 'code', listPage: 1, fundQuery: '', curves: new Set(['price', 'breadth', 'pcr']), overlay: true, breadthMa: true, pcr: null};
+  let browseStorage = null; try { browseStorage = window.sessionStorage; } catch (_) {}
+  const savedSectorPreferences = readSectorPreferences(browseStorage);
+  const sectorBrowse = new Map(Object.entries(savedSectorPreferences.markets)), archive = {status:'idle', directory:null, pending:null, error:'', requested:savedSectorPreferences.archiveRequested};
   const loaded = new Map(), pending = new Map(), plots = new Map();
   let readGeneration = 0;
   const byId = id => document.getElementById(id);
@@ -190,7 +222,7 @@
   function marketTabs() { return `<nav class="mp-markets" aria-label="本页市场">${Object.entries(MARKETS).map(([code, info]) => `<button type="button" data-mp-market="${code}" aria-pressed="${code === state.market}">${info[0]}</button>`).join('')}</nav>`; }
   function heading(title, subtitle) { return `<div class="mp-heading"><span class="eyebrow">HISTORICAL SNAPSHOT</span><h1>${title}</h1><p>${subtitle}</p></div>`; }
   function notesHTML(notes, title = '数据口径与限制') { return Array.isArray(notes) && notes.length ? `<details class="mp-notes"><summary>${esc(title)}</summary>${notes.filter(n => typeof n === 'string').map(n => `<p>${esc(n)}</p>`).join('')}</details>` : ''; }
-  async function fetchBody(url, reload) {
+  async function fetchBody(url, reload, timeout = 25000) {
     const controller = new AbortController(); let timer;
     const body = (async () => {
       const response = await fetch(url, {cache: reload ? 'reload' : 'no-cache', signal: controller.signal});
@@ -200,7 +232,7 @@
     // Leave the worker's 20-second cold-read deadline time to settle first.
     // The same bound also protects an uncontrolled first visit and slow bodies.
     try { return await Promise.race([body, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('分析快照读取超时，请重新读取。')), 25000);
+      timer = setTimeout(() => reject(new Error('分析快照读取超时，请重新读取。')), timeout);
     })]); } finally { clearTimeout(timer); controller.abort(); }
   }
   async function read(path, version, market, reload = false, kind = null) {
@@ -236,7 +268,7 @@
   }
   async function open(pageId, market, reload = false) {
     if (!PAGE_IDS[pageId]) return;
-    state.page = pageId; if (MARKETS[market]) state.market = market;
+    state.page = pageId; state.active = true; if (MARKETS[market]) state.market = market;
     const own = ++state.serial, selectedMarket = state.market;
     if (pageId === 'help') { renderHelp(); return; }
     pageRoot().innerHTML = heading(pageId === 'sectors' ? '板块里有哪些公司？' : '指数背后，有多少人在涨？', '按需读取已发布的公共快照。') + '<p class="mp-note" role="status">正在读取本市场历史数据…</p><div class="mp-skeleton" aria-hidden="true"></div><div class="mp-skeleton large" aria-hidden="true"></div>';
@@ -249,7 +281,11 @@
       if (data.market !== selectedMarket) throw new Error('返回市场与当前选择不一致，停止展示。');
       if (pageId === 'sectors') {
         if (data.currency && data.currency !== MARKETS[selectedMarket][1]) throw new Error('目录币种不一致，停止比较市值。');
-        state.sectors = normalizeDirectory(data); state.sector = 'all'; state.query = ''; state.listPage = 1; renderSectors();
+        state.sectors = normalizeDirectory(data);
+        const saved = sectorBrowse.get(selectedMarket) || {};
+        state.sector = data.sectors.some(s => s.id === saved.sector) ? saved.sector : 'all';
+        state.query = saved.query || ''; state.sort = saved.sort || 'code'; state.listPage = saved.listPage || 1; state.fundQuery = saved.fundQuery || '';
+        renderSectors();
       } else { state.environment = data; if (!(data.pcr_series || []).some(p => p.id === state.pcr)) state.pcr = data.pcr_series?.[0]?.id || null; renderEnvironment(); }
     } catch (error) {
       if (own !== state.serial) return;
@@ -259,7 +295,45 @@
   function publicCoreCodes() { return state.catalog?.core_chart_codes || []; }
   function assetAction(item) {
     const link = coreLink(item.code, publicCoreCodes());
-    return link ? `<a class="mp-open" href="${esc(link)}">打开已发布 K 线 →</a>` : '<span class="mp-unavailable">日 K 待补 · 目录不等于已有行情</span>';
+    if (link) return `<a class="mp-open" href="${esc(link)}">打开已发布 K 线 →</a>`;
+    if (item.market === 'CN') {
+      const historical = archiveLink(item, archive.directory);
+      if (historical) return `<a class="mp-open" href="${esc(historical)}">查看历史档案（无信号/回测） →</a><small>档案截至 ${esc(archive.directory.assets.get(item.code).end)}</small>`;
+      const message = archive.status === 'ready' ? archive.directory.assets.has(item.code) ? '历史档案名称待核验，未生成入口' : '暂无已发布核心行情或历史档案' : archive.status === 'loading' ? '正在核验历史档案目录…' : archive.status === 'failed' ? '档案目录读取失败，尚未确认可用' : '核心行情未收录 · 可查询历史档案';
+      return `<span class="mp-unavailable">${message}</span>`;
+    }
+    return '<span class="mp-unavailable">日 K 待补 · 目录不等于已有行情</span>';
+  }
+  function saveSectorBrowse() {
+    if (state.sectors) sectorBrowse.set(state.sectors.market, {sector:state.sector, query:state.query, sort:state.sort, listPage:state.listPage, fundQuery:state.fundQuery});
+    writeSectorPreferences(browseStorage, sectorBrowse, archive.requested);
+  }
+  function renderArchiveLookup() {
+    const target = byId('mpArchiveLookup'); if (!target || state.sectors?.market !== 'CN') return;
+    const message = archive.status === 'ready' ? `已核验 ${archive.directory.assets.size.toLocaleString('zh-CN')} 个档案标的 · 目录版本 ${archive.directory.version}` : archive.status === 'loading' ? '正在读取历史档案目录，板块与公司列表仍可使用…' : archive.status === 'failed' ? `历史档案目录尚未核验：${archive.error}` : '部分公司已有独立历史价格档案。按需读取一次目录后，才为核验通过的公司显示入口。';
+    target.innerHTML = `<p class="mp-note" role="status">${esc(message)}</p>${archive.status === 'ready' ? '' : `<button type="button" data-mp-archive ${archive.status === 'loading' ? 'disabled' : ''}>${archive.status === 'failed' ? '重试历史档案目录' : '查找已有历史档案'}</button>`}<p class="mp-note">历史档案的复权口径和成交量单位尚未核验，仅查看历史价格，不提供信号或回测。</p>`;
+  }
+  function loadArchiveLinks() {
+    // Store only the user's lookup intent in this tab, never the directory.
+    archive.requested = true; writeSectorPreferences(browseStorage, sectorBrowse, true);
+    if (archive.pending || archive.status === 'ready') return archive.pending;
+    const reload = archive.status === 'failed'; archive.status = 'loading'; archive.error = '';
+    renderArchiveLookup(); renderCompanies();
+    const pending = (async () => {
+      try {
+        // This optional 1.46 MB directory never blocks the initial sector page.
+        // The completed directory is shared across subsequent page visits.
+        const directory = archiveDirectory(await fetchBody('data/archive/catalog.json', reload, 45000));
+        archive.directory = directory; archive.status = 'ready'; window.PulseOffline?.remember('data/archive/catalog.json');
+      } catch (error) { archive.status = 'failed'; archive.error = error.message; }
+      finally {
+        archive.pending = null;
+        // The same market may currently be showing a fresh loading skeleton.
+        // Keep the verified directory ready, then let that render use it.
+        if (state.active && state.page === 'sectors' && state.market === 'CN' && state.sectors?.market === 'CN' && byId('mpCompanyStatus')) { renderArchiveLookup(); renderCompanies(); }
+      }
+    })();
+    archive.pending = pending; return pending;
   }
   function sectorScale(data) {
     const good = validCaps(data.sectors, data.currency, data.market_cap_unit).sort((a, b) => b.market_cap - a.market_cap);
@@ -271,18 +345,24 @@
     const d = state.sectors, sectors = d.sectors || [], companies = d.companies || [], sample = d.scope === 'research_sample' || ['HK', 'US'].includes(state.market);
     pageRoot('sectors').innerHTML = heading('先看板块，再看公司。', sample ? '这是已收录的研究目录，未覆盖全市场；板块数量和公司数量都只代表本次样本。' : '行业目录与历史行情分开展示，市值表示规模，不表示未来收益。') +
       `<div class="mp-snapshot">来源日期 ${esc(d.source_asof || d.data_asof || d.data_date || '未返回')} · ${esc(MARKETS[state.market][0])} · ${esc(d.currency || MARKETS[state.market][1])}<small>${esc(d.source || '来源未返回')} · ${esc(d.scope_label || d.scope || '')}</small></div>` +
-      `<div class="mp-stats"><div><strong>${sectors.length}</strong><span>已收录板块</span></div><div><strong>${companies.length.toLocaleString('zh-CN')}</strong><span>目录中的标的</span></div><div><strong>${companies.filter(x => coreLink(x.code, publicCoreCodes())).length}</strong><span>已有公开 K 线</span></div></div>` +
-      `<section class="mp-card"><div class="mp-card-head"><h2>板块规模</h2><span>${sample ? '样本口径' : '来源行业口径'}</span></div>${sectorScale(d)}</section>` + fundsHTML(d, publicCoreCodes()) +
-      `<section class="mp-card"><div class="mp-card-head"><h2>公司目录</h2><span>按需打开单个标的</span></div><div class="mp-directory-tools"><label>板块<select id="mpSectorFilter"><option value="all">全部已收录板块</option>${sectors.map(s => `<option value="${esc(s.id)}" ${state.sector === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label><label>搜索<input id="mpCompanySearch" type="search" placeholder="公司名称或代码" value="${esc(state.query)}"></label><label>排序<select id="mpCompanySort"><option value="code">按代码</option><option value="cap" ${state.sort === 'cap' ? 'selected' : ''}>已知市值优先</option></select></label></div><div id="mpCompanyDistribution"></div><div id="mpCompanyStatus" class="mp-note" role="status"></div><div id="mpCompanyRows" class="mp-company-grid"></div><div id="mpCompanyPages" class="mp-pagination"></div></section>` + notesHTML([...(d.limitations || []), ...(d.notes || [])]);
-    renderCompanies();
+      `<div class="mp-stats"><div><strong>${sectors.length}</strong><span>已收录板块</span></div><div><strong>${companies.length.toLocaleString('zh-CN')}</strong><span>目录中的标的</span></div><div><strong>${companies.filter(x => coreLink(x.code, publicCoreCodes())).length}</strong><span>核心行情 K 线</span></div></div>` +
+      `<section class="mp-card"><div class="mp-card-head"><h2>板块规模</h2><span>${sample ? '样本口径' : '来源行业口径'}</span></div>${sectorScale(d)}</section>` + fundsHTML(d, publicCoreCodes(), state.fundQuery) +
+      `<section class="mp-card"><div class="mp-card-head"><h2>公司目录</h2><span>按需打开单个标的</span></div><div class="mp-directory-tools"><label>板块<select id="mpSectorFilter"><option value="all">全部已收录板块</option>${sectors.map(s => `<option value="${esc(s.id)}" ${state.sector === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label><label>搜索<input id="mpCompanySearch" type="search" placeholder="公司名称或代码" value="${esc(state.query)}"></label><label>排序<select id="mpCompanySort"><option value="code">按代码</option><option value="cap" ${state.sort === 'cap' ? 'selected' : ''}>已知市值优先</option></select></label></div>${state.market === 'CN' ? '<div id="mpArchiveLookup"></div>' : ''}<div id="mpCompanyDistribution"></div><div id="mpCompanyStatus" class="mp-note" role="status"></div><div id="mpCompanyRows" class="mp-company-grid"></div><div id="mpCompanyPages" class="mp-pagination"></div></section>` + notesHTML([...(d.limitations || []), ...(d.notes || [])]);
+    renderCompanies(); renderArchiveLookup();
+    if (state.market === 'CN' && archive.requested && archive.status === 'idle') {
+      const own = state.serial;
+      // A hard navigation/back rebuilds this document. Restore the list first,
+      // then revalidate an earlier user-requested directory in the background.
+      setTimeout(() => { if (own === state.serial && state.active && state.page === 'sectors' && state.market === 'CN') void loadArchiveLinks(); }, 0);
+    }
   }
   function renderCompanies() {
     const d = state.sectors, selection = directoryRows(d, state.query, state.sector, state.sort, state.listPage), rows = selection.rows;
-    state.listPage = selection.page;
+    state.listPage = selection.page; saveSectorBrowse();
     const priced = validCaps(selection.all, d.currency, d.market_cap_unit).sort((a,b) => b.market_cap - a.market_cap), max = priced[0]?.market_cap;
     byId('mpCompanyDistribution').innerHTML = priced.length ? `<details class="mp-explain"><summary>查看当前结果中的公司市值分布</summary><p class="mp-note">${priced.length} / ${selection.total} 家有市值；以下列出已知市值前 8 名，未取得的公司不按零值计算。</p><div class="mp-bars">${priced.slice(0,8).map(c=>`<div class="mp-bar-row"><span title="${esc(c.name)}">${esc(c.name)}</span><span class="mp-bar-track"><i style="width:${(c.market_cap/max*100).toFixed(3)}%"></i></span><strong>${cap(c.market_cap,d.currency)}</strong></div>`).join('')}</div></details>` : '';
 
-    byId('mpCompanyStatus').textContent = `${selection.total.toLocaleString('zh-CN')} 个匹配标的 · 可用市值 ${priced.length} / ${selection.total} 家 · 第 ${selection.page} / ${selection.pages} 页；未发布 K 线的条目保留待补状态。`;
+    byId('mpCompanyStatus').textContent = `${selection.total.toLocaleString('zh-CN')} 个匹配标的 · 可用市值 ${priced.length} / ${selection.total} 家 · 第 ${selection.page} / ${selection.pages} 页；核心行情与独立历史档案分开标示。`;
     byId('mpCompanyRows').innerHTML = rows.length ? rows.map(item => `<article class="mp-company"><div><h3>${esc(item.name || item.code)}</h3><span>${esc(item.code)} · ${esc(item.kind === 'etf' ? 'ETF' : item.sector_name || '公司')}</span></div><p>${companyCapHTML(item, d)}<small>${esc(item.source_time || item.data_date || item.source_asof || '')}</small></p>${assetAction(item)}</article>`).join('') : '<p class="mp-empty">当前板块或搜索没有匹配标的。可清空搜索或选择全部板块。</p>';
     byId('mpCompanyPages').innerHTML = `<button type="button" data-mp-list-page="${selection.page - 1}" ${selection.page <= 1 ? 'disabled' : ''}>上一页</button><span>${selection.page} / ${selection.pages}</span><button type="button" data-mp-list-page="${selection.page + 1}" ${selection.page >= selection.pages ? 'disabled' : ''}>下一页</button>`;
   }
@@ -428,6 +508,7 @@
     const market = event.target.closest('[data-mp-market]')?.dataset.mpMarket;
     if (market) { open(state.page, market); return; }
     if (event.target.closest('[data-mp-retry]')) { retryPage(); return; }
+    if (event.target.closest('[data-mp-archive]') && state.page === 'sectors' && state.market === 'CN') { void loadArchiveLinks(); return; }
     const sector = event.target.closest('[data-mp-sector]')?.dataset.mpSector;
     if (sector) { state.sector = sector; state.listPage = 1; byId('mpSectorFilter').value = sector; renderCompanies(); byId('mpSectorFilter').scrollIntoView({behavior: 'smooth', block: 'center'}); return; }
     const page = event.target.closest('[data-mp-list-page]');
@@ -436,7 +517,7 @@
     const plot = plots.get(zoom?.dataset.mpZoom || reset?.dataset.mpReset);
     if (plot) { plot.view = zoom ? zoomRange(plot.rows.length, plot.view, Number(zoom.dataset.mpScale), plot.hover === null ? .5 : (plot.hover - plot.view.start) / Math.max(1, plot.view.size - 1)) : viewRange(plot.rows.length); plot.hover = null; savedViews.set(plot.key, plot.view); drawPlot(plot); }
   });
-  document.addEventListener('input', event => { if (event.target.id === 'mpCompanySearch') { state.query = event.target.value; state.listPage = 1; renderCompanies(); } if(event.target.id==='mpFundSearch')byId('mpFundGroups').innerHTML=fundGroupsHTML(state.sectors,publicCoreCodes(),event.target.value); });
+  document.addEventListener('input', event => { if (event.target.id === 'mpCompanySearch') { state.query = event.target.value; state.listPage = 1; renderCompanies(); } if(event.target.id==='mpFundSearch'){ state.fundQuery = event.target.value; saveSectorBrowse(); byId('mpFundGroups').innerHTML=fundGroupsHTML(state.sectors,publicCoreCodes(),state.fundQuery); } });
   document.addEventListener('change', event => {
     const t = event.target;
     if (t.id === 'mpSectorFilter') { state.sector = t.value; state.listPage = 1; renderCompanies(); }
@@ -446,7 +527,7 @@
     if (t.id === 'mpBreadthMa') { state.breadthMa = t.checked; renderEnvironment(); }
     if (t.id === 'mpPcrSeries') { state.pcr = t.value; renderEnvironment(); }
   });
-  window.addEventListener('pulse:page', event => { if (PAGE_IDS[event.detail?.page]) open(event.detail.page, event.detail.market); else state.serial++; });
+  window.addEventListener('pulse:page', event => { if (PAGE_IDS[event.detail?.page]) open(event.detail.page, event.detail.market); else { state.active = false; state.serial++; } });
   window.addEventListener('pulse:theme',()=>{for(const plot of plots.values())scheduleDraw(plot);});
   window.PulseMarketPages = {open};
 }());
