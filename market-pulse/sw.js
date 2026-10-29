@@ -1,5 +1,5 @@
 'use strict';
-const BUILD='b108e3283be952cf';
+const BUILD='31b44027fad0919c';
 const SCOPE=new URL(self.registration.scope);
 const PREFIX='market-pulse-mobile:'+SCOPE.pathname+':';
 const SHELL=PREFIX+'shell:'+BUILD, DATA=PREFIX+'data:v2';
@@ -13,6 +13,7 @@ const RESULT=new RegExp('^data/research/(baseline|trend60|breakout_only|hold20|h
 // Public Pages TTFB can exceed five seconds on mobile networks. These bounds
 // protect genuinely cold reads; cached responses never wait for these timers.
 const CATALOG_TIMEOUT=20000, DATA_TIMEOUT=20000, VERSION_TIMEOUT=15000;
+const BUILD_HEADER='X-Pulse-Build';
 let writes=Promise.resolve();
 const pendingData=new Map();
 
@@ -68,11 +69,31 @@ async function limitEntries(cache,maximum){
   }
 }
 async function saveData(request,response){
-  const copy=response.clone();
+  // Mark only a successfully validated source response, never a migrated or
+  // offline fallback entry. A new shell must verify inherited directories.
+  const copy=withHeaders(response,{[BUILD_HEADER]:BUILD});
   const pending=writes.catch(()=>{}).then(async()=>{
     try{const cache=await caches.open(DATA);await cache.put(request,copy);await limitEntries(cache,90);return true;}catch(_){return false;}
   });
   writes=pending;return pending;
+}
+function withHeaders(response,values){
+  const headers=new Headers(response.headers);
+  // Fetch bodies are decoded already; synthetic responses must not advertise
+  // the old wire compression/length after adding our local metadata.
+  headers.delete('Content-Encoding');headers.delete('Content-Length');
+  for(const [key,value] of Object.entries(values))headers.set(key,value);
+  return new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers});
+}
+async function previousBuildFallback(request,id,stored){
+  if(id.version||stored.headers.get(BUILD_HEADER)===BUILD)return stored;
+  const cacheBuild=stored.headers.get(BUILD_HEADER)||'unmarked';
+  try{
+    if(self.clients.matchAll)for(const client of await self.clients.matchAll({type:'window',includeUncontrolled:true})){
+      const url=new URL(client.url);if(url.origin===SCOPE.origin&&url.pathname.startsWith(SCOPE.pathname))client.postMessage({type:'PULSE_PREVIOUS_BUILD_FALLBACK',url:request.url,build:BUILD,cache_build:cacheBuild});
+    }
+  }catch(_){}
+  return withHeaders(stored,{'X-Pulse-Cache-State':'previous-build-fallback','X-Pulse-Active-Build':BUILD});
 }
 async function cachedData(request){
   const cache=await caches.open(DATA),hit=await cache.match(request);
@@ -125,18 +146,18 @@ async function refreshData(request,id,stored,cacheMode='no-store'){
     const before=research?await checkResearchVersion(id):null;
     const deadline=id.kind.includes('catalog')?CATALOG_TIMEOUT:DATA_TIMEOUT;
     const {response,payload}=await timedFetch(request,deadline,cacheMode);
-    if(!response.ok)return stored||response;
-    if(!validPayload(payload,id,before))return stored||unavailable('发布版本已变化，请刷新目录；不会混用不同快照。');
+    if(!response.ok)return stored?previousBuildFallback(request,id,stored):response;
+    if(!validPayload(payload,id,before))return stored?previousBuildFallback(request,id,stored):unavailable('发布版本已变化，请刷新目录；不会混用不同快照。');
     if(research){
       // Bracket the body with directory checks to catch a deployment between
       // either request; data_asof also binds the body to its frozen data range.
       const after=await checkResearchVersion(id);
-      if(after.version!==before.version||after.data_asof!==before.data_asof)return stored||unavailable('发布版本已变化，请刷新目录。');
+      if(after.version!==before.version||after.data_asof!==before.data_asof)return stored?previousBuildFallback(request,id,stored):unavailable('发布版本已变化，请刷新目录。');
     }
     const saved=await saveData(request,response); // quota failures must not discard a valid network response
     if(saved&&stored&&!id.version)await announceUpdate(request,stored,payload);
     return response;
-  }catch(_){return stored||unavailable();}
+  }catch(_){return stored?previousBuildFallback(request,id,stored):unavailable();}
 }
 async function refreshOnce(request,id,stored,cacheMode){
   const key=request.url;
@@ -147,6 +168,9 @@ async function dataResponse(request,id,background,cacheMode='no-store'){
   let stored=null;try{stored=await cachedData(request);}catch(_){}
   if(stored){
     if(!id.version){
+      // One network verification per unversioned directory on shell upgrade.
+      // Keep the inherited entry untouched if the network is unavailable.
+      if(stored.headers.get(BUILD_HEADER)!==BUILD)return refreshOnce(request,id,stored.clone(),'no-store');
       const task=refreshOnce(request,id,stored.clone(),cacheMode);
       if(background)background.push(task);else void task.catch(()=>{});
     }
@@ -213,11 +237,13 @@ self.addEventListener('message',event=>{
         const request=new Request(id.url.href);
         // Controlled page reads are already stored. Avoid revalidating their
         // unversioned directory a second time solely to acknowledge caching.
-        if(await cachedData(request)){result.cached.push(id.url.href);return;}
+        const stored=await cachedData(request);
+        if(stored&&(id.version||stored.headers.get(BUILD_HEADER)===BUILD)){result.cached.push(id.url.href);return;}
         // The uncontrolled first visit may already have a validated HTTP-cache
         // response. Reuse it where possible; payload/version checks still run.
-        const response=await dataResponse(request,id,[],'force-cache');
-        if(response.ok&&await cachedData(request))result.cached.push(id.url.href);else result.failed.push(id.url.href);
+        const response=await dataResponse(request,id,[],id.version?'force-cache':'no-store');
+        const saved=await cachedData(request);
+        if(response.ok&&saved&&(id.version||saved.headers.get(BUILD_HEADER)===BUILD))result.cached.push(id.url.href);else result.failed.push(id.url.href);
       }catch(_){result.failed.push(id.url.href);}
     }));
     event.ports?.[0]?.postMessage(result);

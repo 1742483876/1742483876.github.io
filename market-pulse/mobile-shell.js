@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-  const BUILD='b108e3283be952cf';
+  const BUILD='31b44027fad0919c';
   const PAGES={chart:'行情',signals:'近期 S 点',sectors:'板块与公司',temperature:'市场温度',research:'策略研究',help:'使用说明'};
   function route(value){const key=String(value||'').replace(/^#/,'');return Object.hasOwn(PAGES,key)?key:'chart';}
   function buildState(current,remote){if(!/^[a-f0-9]{16}$/.test(remote||''))return 'unknown';return current===remote?'current':'available';}
@@ -20,7 +20,7 @@
   const nav=document.createElement('nav');nav.id='mobileNavigation';nav.className='mobile-navigation';nav.setAttribute('aria-label','手机主要页面');
   const labels={chart:['⌁','行情'],signals:['S','S 买卖点'],sectors:['▦','板块'],temperature:['∿','温度'],research:['↗','回测'],help:['?','说明']};
   nav.innerHTML=Object.entries(labels).map(([key,[icon,label]])=>`<button type="button" data-mobile-page="${key}" aria-label="${PAGES[key]}"><span aria-hidden="true">${icon}</span><small>${label}</small></button>`).join('');document.body.append(nav);
-  const update=document.createElement('div');update.id='mobileUpdateBar';update.className='mobile-update-bar';update.innerHTML='<span id="mobileVersionStatus">手机版 · 独立页面导航</span><button type="button" id="checkMobileUpdate">检查更新</button><button type="button" id="applyMobileUpdate" hidden>更新并重新打开</button>';
+  const update=document.createElement('div');update.id='mobileUpdateBar';update.className='mobile-update-bar';update.innerHTML='<span id="mobileVersionStatus">手机版 · 独立页面导航</span><button type="button" id="checkMobileUpdate">检查更新</button><button type="button" id="applyMobileUpdate" hidden>更新并重新打开</button><button type="button" id="refreshMobileSnapshot" hidden>载入新数据</button>';
   document.querySelector('.top').after(update);
   let selected='chart';const scrolls=new Map();
   function market(){return document.querySelector('#marketTabs [aria-pressed="true"]')?.dataset.market||'CN';}
@@ -83,6 +83,7 @@
     finally{$('applyMobileUpdate').disabled=false;}
   }
   $('checkMobileUpdate').addEventListener('click',check);$('applyMobileUpdate').addEventListener('click',applyUpdate);
-  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='PULSE_SNAPSHOT_UPDATED'){status('已有新数据快照 · 重新打开后使用，当前图表保持不变');}});
+  $('refreshMobileSnapshot').addEventListener('click',()=>location.reload());
+  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='PULSE_SNAPSHOT_UPDATED'){status('已有新数据快照 · 当前图表保持不变');$('refreshMobileSnapshot').textContent='载入新数据';$('refreshMobileSnapshot').hidden=false;}else if(event.data?.type==='PULSE_PREVIOUS_BUILD_FALLBACK'){status('当前目录未能在线更新，沿用上次保存的快照');$('refreshMobileSnapshot').textContent='重试更新';$('refreshMobileSnapshot').hidden=false;}});
   void check();
 }());

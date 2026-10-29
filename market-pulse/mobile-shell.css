@@ -2,3 +2,4 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom,0px))}.mobile-page[hi
 @keyframes page-in{from{opacity:.6;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:600px){.mobile-update-bar{padding:6px 13px;font-size:10px}.mobile-signal-page{padding:17px 13px}.mobile-signal-page #radarList{grid-template-columns:1fr}.mobile-navigation{padding-left:5px;padding-right:5px}.mobile-navigation button small{font-size:10px}.mobile-page .snapshot-notice{margin-bottom:10px}}
 @media(prefers-reduced-motion:reduce){.mobile-page{animation:none}}
+.mobile-update-bar{flex-wrap:wrap}.mobile-update-bar>span{min-width:0;flex:1 1 180px}.mobile-update-bar button{flex-shrink:0}@media(max-width:500px){.mobile-update-bar>span{flex-basis:160px}}
