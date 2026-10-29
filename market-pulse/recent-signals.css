@@ -1,0 +1,8 @@
+.radar-open{margin-top:8px;border:1px solid #70894855!important;border-radius:8px;padding:6px 8px!important;color:#d4ef9b!important;font-weight:600}
+.radar-dialog{width:min(720px,calc(100vw - 24px));max-height:88dvh}
+.radar-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0}
+.radar-controls label{font-size:12px;color:var(--muted,#9aada9);display:grid;gap:6px}.radar-controls select{width:100%;min-height:44px}
+#radarStatus{font-size:13px;color:#d4ef9b;margin:14px 0}#radarList{display:grid;gap:10px}
+.radar-row{display:block;padding:13px;border:1px solid #344644;border-radius:10px;color:inherit;text-decoration:none;background:#182321}.radar-row:hover{border-color:#708948}
+.radar-row>div{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.radar-row strong{font-size:14px}.radar-row strong span{display:block;color:#9aada9;font-size:11px;margin-top:4px;font-weight:400}.radar-row b{font-size:12px;white-space:nowrap;color:#d4ef9b}.radar-row.sell b{color:#e8c18a}.radar-row p{margin:9px 0;font-size:12px;color:#d8e0dc}.radar-row small{display:block;color:#a5b6b0;line-height:1.7;font-size:11px}
+@media(max-width:430px){.radar-controls{gap:6px}.radar-controls select{padding:7px 4px;font-size:12px}.radar-dialog{padding:16px}.radar-open{font-size:11px!important}}
