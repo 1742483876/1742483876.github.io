@@ -39,9 +39,9 @@
   side.append(button);
   const dialog=document.createElement('dialog');
   dialog.id='recentSignalsDialog';dialog.className='radar-dialog';dialog.setAttribute('aria-labelledby','recentSignalsTitle');
-  dialog.innerHTML=`<div class="dialog-head"><div><span class="eyebrow">A 股 · 美股 / 历史信号</span><h2 id="recentSignalsTitle">近期 S 点</h2></div><button type="button" class="close-button" id="recentSignalsClose" aria-label="关闭近期 S 点">×</button></div><p class="note">买点与卖点一起查。S 买点评估规则条件，S 卖点评估退出紧迫度，均不代表盈利概率。</p><div class="radar-controls"><label>市场<select id="radarMarket" aria-label="S点市场"><option value="all">A 股 + 美股</option><option value="CN">A 股 / ETF</option><option value="US">美股 / ETF</option></select></label><label>方向<select id="radarSide" aria-label="S点方向"><option value="all">买点 + 卖点</option><option value="buy">只看买点</option><option value="sell">只看卖点</option></select></label><label>范围<select id="radarDays" aria-label="S点近期范围"><option value="10">近 10 根日 K</option><option value="30">近 30 根日 K</option></select></label></div><p class="note" id="radarCoverage"></p><div id="radarStatus" role="status"></div><div id="radarList"></div><p class="note">“近期”以各标的最后一根已完成日 K 为基准，包含当根，按交易日根数计算。这里只查已验证的研究池，扩展历史档案不参与评级；旧快照信号不等于现在仍可以买卖。</p>`;
+  dialog.innerHTML=`<div class="dialog-head"><div><span class="eyebrow">A 股 · 美股 / 历史信号</span><h2 id="recentSignalsTitle">近期 S 点</h2></div><button type="button" class="close-button" id="recentSignalsClose" aria-label="关闭近期 S 点">×</button></div><p class="note">买点与卖点一起查。S 买点评估规则条件，S 卖点评估退出紧迫度，均不代表盈利概率。</p><div class="radar-controls"><label>市场<select id="radarMarket" aria-label="S点市场"><option value="all">A 股 + 美股</option><option value="CN">A 股 / ETF</option><option value="US">美股 / ETF</option></select></label><label>方向<select id="radarSide" aria-label="S点方向"><option value="all">买点 + 卖点</option><option value="buy">只看买点</option><option value="sell">只看卖点</option></select></label><label>范围<select id="radarDays" aria-label="S点近期范围"><option value="10">近 10 根日 K</option><option value="30">近 30 根日 K</option></select></label></div><p class="note" id="radarCoverage"></p><div id="radarStatus" role="status"></div><div id="radarList"></div><p class="note">“近期”以各标的最后一根已完成日 K 为基准，包含当根，按交易日根数计算。这里只查公开核心行情目录，扩展历史档案不参与评级；旧快照信号不等于现在仍可以买卖。</p>`;
   document.body.append(dialog);
-  let data=null,pending=null;
+  let data=null,pending=null,pageContainer=null;
   function render() {
     if(!data)return;
     const market=$('radarMarket').value,selection={market,side:$('radarSide').value,days:Number($('radarDays').value)},rows=selectSignals(data,selection);
@@ -69,11 +69,23 @@
     })();
     return pending;
   }
-  button.addEventListener('click',()=>{
+  function activate(market){
+    if(market)$('radarMarket').value=['CN','US'].includes(market)?market:'all';
+    void load();
+  }
+  function open(){
     const current=document.querySelector('#marketTabs [aria-pressed="true"]')?.dataset.market;
-    $('radarMarket').value=['CN','US'].includes(current)?current:'all';
-    dialog.showModal();void load();
-  });
-  $('recentSignalsClose').addEventListener('click',()=>dialog.close());
+    activate(current);
+    if(pageContainer)window.dispatchEvent(new CustomEvent('pulse:navigate',{detail:{page:'signals'}}));
+    else dialog.showModal();
+  }
+  window.PulseRecentSignals={activate,open,mount(container){
+    if(pageContainer)return;
+    if(dialog.open)dialog.close();
+    container.append(...Array.from(dialog.childNodes));dialog.remove();pageContainer=container;
+    $('recentSignalsClose').hidden=true;
+  }};
+  button.addEventListener('click',open);
+  $('recentSignalsClose').addEventListener('click',()=>{if(pageContainer)window.dispatchEvent(new CustomEvent('pulse:navigate',{detail:{page:'chart'}}));else dialog.close();});
   ['radarMarket','radarSide','radarDays'].forEach(id=>$(id).addEventListener('change',render));
 }());

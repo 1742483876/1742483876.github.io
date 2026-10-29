@@ -6,10 +6,11 @@
   function snapshotURL(path, base) {
     if (typeof path !== 'string') return null;
     try {
+      if (/(?:\/|%2f)(?:\.|%2e){1,2}(?:\/|%2f|[?#]|$)/i.test(path)) return null;
       const scope = new URL('./', base), url = new URL(path, scope);
       if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname + 'data/') || url.hash || url.username || url.password) return null;
       const relative = url.pathname.slice(scope.pathname.length);
-      if (!/^data\/(?:catalog\.json|research\/catalog\.json|archive\/catalog\.json|signals\/recent\.json|archive\/charts\/(?:sh|sz|bj)[0-9]{6}\.json|charts\/[A-Za-z0-9_.-]+\/day\.json|research\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_-]+\.json)$/.test(relative)) return null;
+      if (!/^data\/(?:catalog\.json|research\/catalog\.json|archive\/catalog\.json|signals\/recent\.json|analytics\/(?:catalog|sectors-(?:CN|HK|US)|environment-(?:CN|HK|US|BTC))\.json|archive\/charts\/(?:sh|sz|bj)[0-9]{6}\.json|charts\/[A-Za-z0-9_.-]+\/day\.json|research\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_-]+\.json)$/.test(relative)) return null;
       if ([...url.searchParams.keys()].some(k => k !== 'v') || url.searchParams.getAll('v').length > 1) return null;
       return url.href;
     } catch (_) { return null; }
@@ -43,7 +44,9 @@
           channel.port1.close();
           resolve(value);
         };
-        const timer = env.setTimeout(() => finish(null), 10000);
+        // Cold research can require two 15s version checks plus a 20s body.
+        // This acknowledgement is asynchronous and never blocks page reads.
+        const timer = env.setTimeout(() => finish(null), 60000);
         channel.port1.onmessage = event => {
           if (event.data?.type === 'PULSE_CACHE_VISITED_RESULT') finish(event.data);
         };
@@ -98,7 +101,7 @@
       env.addEventListener('online', () => { attempted.clear(); failed = false; status(); void flush(); });
       serviceWorker.addEventListener('controllerchange', () => useWorker(serviceWorker.controller));
       status();
-      serviceWorker.register('./sw.js', {scope: './'}).then(async registration => {
+      serviceWorker.register('./sw.js', {scope: './', updateViaCache: 'none'}).then(async registration => {
         // An active worker is sufficient for explicit caching even before it
         // has claimed this document. Readiness is not on the chart load path.
         useWorker(serviceWorker.controller || registration.active);

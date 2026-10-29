@@ -1,16 +1,20 @@
 'use strict';
-const BUILD='21bafa748ed89711';
+const BUILD='b108e3283be952cf';
 const SCOPE=new URL(self.registration.scope);
 const PREFIX='market-pulse-mobile:'+SCOPE.pathname+':';
 const SHELL=PREFIX+'shell:'+BUILD, DATA=PREFIX+'data:v2';
-const SHELL_FILES=['./','./index.html','./style.css','./app.js','./offline.js','./recent-signals.js','./recent-signals.css','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
+const SHELL_FILES=['./','./index.html','./style.css','./app.js','./offline.js','./recent-signals.js','./recent-signals.css','./mobile-shell.js','./mobile-shell.css','./market-pages.js','./market-pages.css','./theme.js','./theme.css','./upgrade.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 const SHELL_PATHS=new Set(SHELL_FILES.map(p=>new URL(p,SCOPE).pathname));
-const PINNED_DATA_PATHS=new Set(['data/catalog.json','data/research/catalog.json','data/archive/catalog.json','data/signals/recent.json'].map(p=>new URL(p,SCOPE).pathname));
+const PINNED_DATA_PATHS=new Set(['data/catalog.json','data/research/catalog.json','data/archive/catalog.json','data/signals/recent.json','data/analytics/catalog.json'].map(p=>new URL(p,SCOPE).pathname));
+const ANALYTICS_FILES=new Set(['catalog','sectors-CN','sectors-HK','sectors-US','environment-CN','environment-HK','environment-US','environment-BTC']);
 const CODE='(?:BTC-USD|(?:sh|sz)[0-9]{6}|hk[0-9]{5}|us[A-Z][A-Z0-9.\\-]{0,12})';
 const CHART=new RegExp('^data/charts/('+CODE+')/day\\.json$');
 const RESULT=new RegExp('^data/research/(baseline|trend60|breakout_only|hold20|half_1r_2r|donchian20|rsi_pullback|boll_reentry|compression_breakout)/('+CODE+')/(full|development|validation|recent)\\.json$');
-const CATALOG_TIMEOUT=2500, DATA_TIMEOUT=5000, VERSION_TIMEOUT=1500;
+// Public Pages TTFB can exceed five seconds on mobile networks. These bounds
+// protect genuinely cold reads; cached responses never wait for these timers.
+const CATALOG_TIMEOUT=20000, DATA_TIMEOUT=20000, VERSION_TIMEOUT=15000;
 let writes=Promise.resolve();
+const pendingData=new Map();
 
 // Exact query identity is essential: no ignoreSearch or fallback to another v.
 function dataIdentity(value){
@@ -25,6 +29,10 @@ function dataIdentity(value){
     if(path==='data/catalog.json'||path==='data/research/catalog.json')return {url,path,version,kind:path==='data/catalog.json'?'catalog':'research-catalog'};
     if(path==='data/archive/catalog.json')return {url,path,version,kind:'archive-catalog'};
     if(path==='data/signals/recent.json')return {url,path,version,kind:'signal-index'};
+    const analytics=/^data\/analytics\/([A-Za-z-]+)\.json$/.exec(path);
+    if(analytics&&ANALYTICS_FILES.has(analytics[1])){
+      const [type,market]=analytics[1].split('-');return {url,path,version,kind:'analytics-'+type,market};
+    }
     if(!version)return null;
     const archive=/^data\/archive\/charts\/((?:sh|sz|bj)[0-9]{6})\.json$/.exec(path);
     if(archive)return {url,path,version,kind:'archive-chart',code:archive[1]};
@@ -36,11 +44,11 @@ function dataIdentity(value){
 function unavailable(message='离线时尚未缓存此快照。'){
   return new Response(JSON.stringify({error:message}),{status:503,headers:{'Content-Type':'application/json; charset=utf-8'}});
 }
-async function timedFetch(request,timeout){
+async function timedFetch(request,timeout,cacheMode='no-store'){
   const controller=new AbortController();let timer;
   try{
     const read=async()=>{
-      const response=await fetch(request,{signal:controller.signal,cache:'no-store'});
+      const response=await fetch(request,{signal:controller.signal,cache:cacheMode});
       // A fast header with a stalled body must not defeat the offline deadline.
       const payload=response.ok?await response.clone().json():null;
       return {response,payload};
@@ -79,7 +87,13 @@ function validPayload(payload,id,expected){
   if(id.kind==='catalog')return Array.isArray(payload.assets)&&typeof payload.snapshot_at==='string'&&(!id.version||payload.snapshot_at===id.version);
   if(id.kind==='archive-catalog')return payload.schema_version==='cn-archive-1'&&payload.archive_only===true&&Array.isArray(payload.assets)&&typeof payload.generated_at==='string'&&(!id.version||payload.generated_at===id.version);
   if(id.kind==='archive-chart')return payload.schema_version==='cn-archive-1'&&payload.archive_only===true&&payload.code===id.code&&payload.generated_at===id.version&&Array.isArray(payload.rows)&&JSON.stringify(payload.columns)===JSON.stringify(['date','open','high','low','close','volume']);
-  if(id.kind==='signal-index')return payload.schema_version==='recent-signals-1'&&payload.historical_only===true&&payload.window_bars===30&&Array.isArray(payload.signals)&&(!id.version||payload.snapshot_at===id.version);
+  if(id.kind==='signal-index')return payload.schema_version==='recent-signals-1'&&payload.historical_only===true&&payload.window_bars===30&&Array.isArray(payload.signals)&&typeof payload.snapshot_at==='string'&&(!id.version||payload.snapshot_at===id.version);
+  if(id.kind.startsWith('analytics-')){
+    if(payload.schema_version!=='mobile-analytics-1'||payload.historical_only!==true||typeof payload.snapshot_at!=='string'||id.version&&payload.snapshot_at!==id.version)return false;
+    if(id.kind==='analytics-catalog')return Array.isArray(payload.markets)&&Array.isArray(payload.core_chart_codes);
+    if(payload.market!==id.market)return false;
+    return id.kind==='analytics-sectors'?Array.isArray(payload.sectors):Array.isArray(payload.index_series)&&Array.isArray(payload.breadth_series)&&Array.isArray(payload.pcr_series);
+  }
   if(expected&&payload.data_asof!==expected.data_asof)return false;
   if(id.kind==='research-catalog')return Array.isArray(payload.profiles)&&Array.isArray(payload.phases)&&typeof payload.generated_at==='string';
   if(id.kind==='chart')return payload.code===id.code&&payload.period==='day'&&payload.snapshot_at===id.version&&Array.isArray(payload.bars);
@@ -96,14 +110,21 @@ async function checkResearchVersion(id){
   if(current!==id.version||typeof data_asof!=='string')throw new Error('snapshot changed');
   return {version:current,data_asof};
 }
-async function dataResponse(request,id){
-  let stored=null;try{stored=await cachedData(request);}catch(_){}
-  if(id.version&&stored)return stored;
+async function announceUpdate(request,stored,payload){
+  try{
+    const previous=await stored.clone().json(),oldVersion=previous.snapshot_at||previous.generated_at,newVersion=payload.snapshot_at||payload.generated_at;
+    if(!oldVersion||!newVersion||oldVersion===newVersion||!self.clients.matchAll)return;
+    for(const client of await self.clients.matchAll({type:'window',includeUncontrolled:true})){
+      const url=new URL(client.url);if(url.origin===SCOPE.origin&&url.pathname.startsWith(SCOPE.pathname))client.postMessage({type:'PULSE_SNAPSHOT_UPDATED',url:request.url,previous_version:oldVersion,version:newVersion});
+    }
+  }catch(_){}
+}
+async function refreshData(request,id,stored,cacheMode='no-store'){
   try{
     const research=id.version&&(id.kind==='result'||id.kind==='research-catalog');
     const before=research?await checkResearchVersion(id):null;
-    const deadline=id.kind==='archive-catalog'&&!stored?15000:id.kind.includes('catalog')?CATALOG_TIMEOUT:DATA_TIMEOUT;
-    const {response,payload}=await timedFetch(request,deadline);
+    const deadline=id.kind.includes('catalog')?CATALOG_TIMEOUT:DATA_TIMEOUT;
+    const {response,payload}=await timedFetch(request,deadline,cacheMode);
     if(!response.ok)return stored||response;
     if(!validPayload(payload,id,before))return stored||unavailable('发布版本已变化，请刷新目录；不会混用不同快照。');
     if(research){
@@ -112,9 +133,26 @@ async function dataResponse(request,id){
       const after=await checkResearchVersion(id);
       if(after.version!==before.version||after.data_asof!==before.data_asof)return stored||unavailable('发布版本已变化，请刷新目录。');
     }
-    await saveData(request,response); // quota failures must not discard a valid network response
+    const saved=await saveData(request,response); // quota failures must not discard a valid network response
+    if(saved&&stored&&!id.version)await announceUpdate(request,stored,payload);
     return response;
   }catch(_){return stored||unavailable();}
+}
+async function refreshOnce(request,id,stored,cacheMode){
+  const key=request.url;
+  if(!pendingData.has(key))pendingData.set(key,refreshData(request,id,stored,cacheMode).finally(()=>pendingData.delete(key)));
+  return (await pendingData.get(key)).clone();
+}
+async function dataResponse(request,id,background,cacheMode='no-store'){
+  let stored=null;try{stored=await cachedData(request);}catch(_){}
+  if(stored){
+    if(!id.version){
+      const task=refreshOnce(request,id,stored.clone(),cacheMode);
+      if(background)background.push(task);else void task.catch(()=>{});
+    }
+    return stored;
+  }
+  return refreshOnce(request,id,null,cacheMode);
 }
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const cache=await caches.open(SHELL);
@@ -143,7 +181,11 @@ self.addEventListener('fetch',event=>{
   const request=event.request,url=new URL(request.url);
   if(request.method!=='GET'||url.origin!==SCOPE.origin||!url.pathname.startsWith(SCOPE.pathname))return;
   const id=dataIdentity(request);
-  if(id){event.respondWith(dataResponse(request,id));return;}
+  if(id){
+    const background=[],response=dataResponse(request,id,background);
+    // Register lifetime work synchronously; the response itself need not wait.
+    event.respondWith(response);event.waitUntil(response.then(()=>Promise.allSettled(background)));return;
+  }
   if(!SHELL_PATHS.has(url.pathname))return;
   event.respondWith((async()=>{
     // HTML, JS and CSS all come from one fully installed build.
@@ -153,6 +195,11 @@ self.addEventListener('fetch',event=>{
   })());
 });
 self.addEventListener('message',event=>{
+  if(event.data?.type==='PULSE_VERSION'){
+    const reply={type:'PULSE_VERSION',build:BUILD};
+    try{const url=new URL(event.source?.url);if(url.origin===SCOPE.origin&&url.pathname.startsWith(SCOPE.pathname)){if(event.ports?.[0])event.ports[0].postMessage(reply);else event.source.postMessage(reply);}}catch(_){}
+    return;
+  }
   if(event.data?.type!=='PULSE_CACHE_VISITED')return;
   event.waitUntil((async()=>{
     const result={type:'PULSE_CACHE_VISITED_RESULT',cached:[],rejected:[],failed:[]};
@@ -163,7 +210,13 @@ self.addEventListener('message',event=>{
       const id=typeof value==='string'&&clientOK?dataIdentity(value):null;
       if(!id){result.rejected.push(typeof value==='string'?value:'invalid URL');return;}
       try{
-        const request=new Request(id.url.href),response=await dataResponse(request,id);
+        const request=new Request(id.url.href);
+        // Controlled page reads are already stored. Avoid revalidating their
+        // unversioned directory a second time solely to acknowledge caching.
+        if(await cachedData(request)){result.cached.push(id.url.href);return;}
+        // The uncontrolled first visit may already have a validated HTTP-cache
+        // response. Reuse it where possible; payload/version checks still run.
+        const response=await dataResponse(request,id,[],'force-cache');
         if(response.ok&&await cachedData(request))result.cached.push(id.url.href);else result.failed.push(id.url.href);
       }catch(_){result.failed.push(id.url.href);}
     }));
