@@ -17,6 +17,18 @@
     if (typeof path !== 'string' || !/^data\/[A-Za-z0-9_./-]+\.json$/.test(path) || path.split('/').includes('..')) throw new Error('公开快照路径无效。');
     return path;
   }
+  function validateCatalog(data) {
+    const stamp = data?.snapshot_at;
+    const validStamp = typeof stamp === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(stamp) && /(?:Z|[+-]\d{2}:\d{2})$/.test(stamp) && validDate(stamp.slice(0,10)) !== null && Number.isFinite(Date.parse(stamp));
+    if (data?.schema_version !== 'mobile-analytics-1' || data.historical_only !== true || !validStamp ||
+        !Array.isArray(data.core_chart_codes) || !data.core_chart_codes.every(code => typeof code === 'string' && /^[A-Za-z0-9._-]{1,32}$/.test(code)) ||
+        !Array.isArray(data.markets) || !data.markets.length || data.markets.some(item => !item || !Object.prototype.hasOwnProperty.call(MARKETS, item.id)) ||
+        new Set(data.markets.map(item => item.id)).size !== data.markets.length) throw new Error('分析目录格式或版本无效，请重新读取。');
+    for (const item of data.markets) for (const key of ['environment_url', 'sectors_url']) {
+      if (item[key] != null) { try { safePath(item[key]); } catch (_) { throw new Error('分析目录包含无效快照路径，请重新读取。'); } }
+    }
+    return data;
+  }
   function cap(value, currency) {
     if (!finite(value) || value <= 0) return '市值待补';
     const base = value >= 1e12 ? 1e12 : value >= 1e8 ? 1e8 : value >= 1e4 ? 1e4 : 1;
@@ -102,6 +114,11 @@
   function validCaps(rows, currency, unit) {
     return unit === 'base_currency' ? (rows || []).filter(r => finite(r.market_cap) && r.market_cap > 0 && (!r.currency || r.currency === currency) && !['etf', 'fund'].includes(r.kind)) : [];
   }
+  function companyCapHTML(item, data) {
+    if (validCaps([item], data.currency, data.market_cap_unit).length) return cap(item.market_cap, data.currency);
+    const warning = typeof item.market_cap_warning === 'string' ? item.market_cap_warning.trim() : '';
+    return warning ? `市值暂不展示<small>来源校验未通过：${esc(warning)}</small>` : '市值待补';
+  }
   function validTrinRows(data) { return data.trin?.status === 'available' ? datedRows(data.trin_series, ['value']) : []; }
   function fundGroups(data, query = '') {
     const groups = new Map(), q = String(query).trim().toLowerCase();
@@ -144,6 +161,7 @@
 
   const state = {page: 'help', market: 'CN', serial: 0, catalog: null, sectors: null, environment: null, sector: 'all', query: '', sort: 'code', listPage: 1, curves: new Set(['price', 'breadth', 'pcr']), overlay: true, breadthMa: true, pcr: null};
   const loaded = new Map(), pending = new Map(), plots = new Map();
+  let readGeneration = 0;
   const byId = id => document.getElementById(id);
   for (const [page, id] of Object.entries(PAGE_IDS)) {
     if (byId(id)) continue;
@@ -154,14 +172,32 @@
   function marketTabs() { return `<nav class="mp-markets" aria-label="本页市场">${Object.entries(MARKETS).map(([code, info]) => `<button type="button" data-mp-market="${code}" aria-pressed="${code === state.market}">${info[0]}</button>`).join('')}</nav>`; }
   function heading(title, subtitle) { return `<div class="mp-heading"><span class="eyebrow">HISTORICAL SNAPSHOT</span><h1>${title}</h1><p>${subtitle}</p></div>`; }
   function notesHTML(notes, title = '数据口径与限制') { return Array.isArray(notes) && notes.length ? `<details class="mp-notes"><summary>${esc(title)}</summary>${notes.filter(n => typeof n === 'string').map(n => `<p>${esc(n)}</p>`).join('')}</details>` : ''; }
-  async function read(path, version) {
+  async function read(path, version, market) {
     let url = safePath(path); if (version) url += '?v=' + encodeURIComponent(version);
-    if (loaded.has(url)) return loaded.get(url);
-    if (pending.has(url)) return pending.get(url);
-    const promise = (async () => { const response = await fetch(url, {cache: 'no-cache'}); if (!response.ok) throw new Error('这份页面快照尚未发布，或本机离线时没有缓存。'); const data = await response.json(); loaded.set(url, data); window.PulseOffline?.remember(url); return data; })();
-    pending.set(url, promise); try { return await promise; } finally { pending.delete(url); }
+    const generation = readGeneration, validate = data => {
+      if (path === 'data/analytics/catalog.json') return validateCatalog(data);
+      if (version && (data?.schema_version !== 'mobile-analytics-1' || data.historical_only !== true || data.snapshot_at !== version)) throw new Error('分析快照版本不一致，请检查更新后重试。');
+      if (market && data?.market !== market) throw new Error('返回市场与当前选择不一致，停止展示。');
+      if (market && data?.currency && data.currency !== MARKETS[market][1]) throw new Error('目录币种不一致，停止比较市值。');
+      return data;
+    };
+    if (loaded.has(url)) return validate(loaded.get(url));
+    if (pending.has(url)) return validate(await pending.get(url));
+    const promise = (async () => { const response = await fetch(url, {cache: 'no-cache'}); if (!response.ok) throw new Error('这份页面快照尚未发布，或本机离线时没有缓存。'); const data = validate(await response.json()); if (generation === readGeneration) { loaded.set(url, data); window.PulseOffline?.remember(url); } return data; })();
+    pending.set(url, promise); try { return await promise; } finally { if (pending.get(url) === promise) pending.delete(url); }
   }
-  async function catalog() { if (!state.catalog) state.catalog = await read('data/analytics/catalog.json'); return state.catalog; }
+  async function catalog() {
+    if (state.catalog) return state.catalog;
+    const generation = readGeneration, data = await read('data/analytics/catalog.json');
+    if (generation === readGeneration) state.catalog = data;
+    return data;
+  }
+  function retryPage() {
+    // Refresh only this module's catalog. Valid version-bound leaf snapshots and
+    // browser offline history remain intact; older requests cannot repopulate it.
+    readGeneration++; state.catalog = null; loaded.delete('data/analytics/catalog.json'); pending.clear();
+    open(state.page, state.market);
+  }
   function resourceFor(c, kind, market) {
     const item = Array.isArray(c.markets) ? c.markets.find(x => x.id === market) : c.markets?.[market];
     return item?.[kind + '_url'] || c[kind + '_urls']?.[market] || `data/analytics/${kind}-${market}.json`;
@@ -175,7 +211,7 @@
     try {
       const c = await catalog(); if(own!==state.serial)return; const kind = pageId === 'sectors' ? 'sectors' : 'environment';
       if (pageId === 'sectors' && selectedMarket === 'BTC') { if (own !== state.serial) return; pageRoot('sectors').innerHTML = heading('比特币是单一资产。', '公司行业市值分类不适用于 BTC。这里保留现货历史入口，不与股票公司市值混算。') + `<section class="mp-card"><h2>BTC-USD</h2><p class="mp-note">美元计价的现货历史，不含杠杆合约。</p>${assetAction({code:'BTC-USD'})}</section>`; return; }
-      const data = await read(resourceFor(c, kind, selectedMarket), c.snapshot_at || c.generated_at);
+      const data = await read(resourceFor(c, kind, selectedMarket), c.snapshot_at, selectedMarket);
       if (own !== state.serial) return;
       if(data.schema_version!=='mobile-analytics-1'||data.historical_only!==true||data.snapshot_at!==c.snapshot_at)throw new Error('分析快照版本不一致，请检查更新后重试。');
       if (data.market !== selectedMarket) throw new Error('返回市场与当前选择不一致，停止展示。');
@@ -214,8 +250,8 @@
     const priced = validCaps(selection.all, d.currency, d.market_cap_unit).sort((a,b) => b.market_cap - a.market_cap), max = priced[0]?.market_cap;
     byId('mpCompanyDistribution').innerHTML = priced.length ? `<details class="mp-explain"><summary>查看当前结果中的公司市值分布</summary><p class="mp-note">${priced.length} / ${selection.total} 家有市值；以下列出已知市值前 8 名，未取得的公司不按零值计算。</p><div class="mp-bars">${priced.slice(0,8).map(c=>`<div class="mp-bar-row"><span title="${esc(c.name)}">${esc(c.name)}</span><span class="mp-bar-track"><i style="width:${(c.market_cap/max*100).toFixed(3)}%"></i></span><strong>${cap(c.market_cap,d.currency)}</strong></div>`).join('')}</div></details>` : '';
 
-    byId('mpCompanyStatus').textContent = `${selection.total.toLocaleString('zh-CN')} 个匹配标的 · 第 ${selection.page} / ${selection.pages} 页；未发布 K 线的条目保留待补状态。`;
-    byId('mpCompanyRows').innerHTML = rows.length ? rows.map(item => `<article class="mp-company"><div><h3>${esc(item.name || item.code)}</h3><span>${esc(item.code)} · ${esc(item.kind === 'etf' ? 'ETF' : item.sector_name || '公司')}</span></div><p>${validCaps([item], d.currency, d.market_cap_unit).length ? cap(item.market_cap, d.currency) : '市值待补'}<small>${esc(item.source_time || item.data_date || item.source_asof || '')}</small></p>${assetAction(item)}</article>`).join('') : '<p class="mp-empty">当前板块或搜索没有匹配标的。可清空搜索或选择全部板块。</p>';
+    byId('mpCompanyStatus').textContent = `${selection.total.toLocaleString('zh-CN')} 个匹配标的 · 可用市值 ${priced.length} / ${selection.total} 家 · 第 ${selection.page} / ${selection.pages} 页；未发布 K 线的条目保留待补状态。`;
+    byId('mpCompanyRows').innerHTML = rows.length ? rows.map(item => `<article class="mp-company"><div><h3>${esc(item.name || item.code)}</h3><span>${esc(item.code)} · ${esc(item.kind === 'etf' ? 'ETF' : item.sector_name || '公司')}</span></div><p>${companyCapHTML(item, d)}<small>${esc(item.source_time || item.data_date || item.source_asof || '')}</small></p>${assetAction(item)}</article>`).join('') : '<p class="mp-empty">当前板块或搜索没有匹配标的。可清空搜索或选择全部板块。</p>';
     byId('mpCompanyPages').innerHTML = `<button type="button" data-mp-list-page="${selection.page - 1}" ${selection.page <= 1 ? 'disabled' : ''}>上一页</button><span>${selection.page} / ${selection.pages}</span><button type="button" data-mp-list-page="${selection.page + 1}" ${selection.page >= selection.pages ? 'disabled' : ''}>下一页</button>`;
   }
   function panelSpecs(d) {
@@ -258,17 +294,25 @@
     const old = savedViews.get(key), canvas = byId('mpPlot-' + panel.id);
     const plot = {panel, canvas, rows: aligned.rows, key, view: old ? viewRange(aligned.rows.length, old.size, old.end) : viewRange(aligned.rows.length), hover: null, drag: null, geometry: null};
     plots.set(panel.id, plot);
-    canvas.addEventListener('pointerdown', event => { plot.drag = {x: event.clientX, y: event.clientY, view: {...plot.view}, moved: false}; canvas.setPointerCapture?.(event.pointerId); });
+    canvas.addEventListener('pointerdown', event => {
+      if (plot.drag || event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+      plot.drag = {id: event.pointerId, x: event.clientX, y: event.clientY, view: {...plot.view}, axis: null};
+      canvas.setPointerCapture?.(event.pointerId);
+    });
     canvas.addEventListener('pointermove', event => {
-      if (!plot.geometry) return;
+      if (!plot.geometry || event.isPrimary === false || (plot.drag && plot.drag.id !== event.pointerId)) return;
       const dx = plot.drag ? event.clientX - plot.drag.x : 0, dy = plot.drag ? event.clientY - plot.drag.y : 0;
-      if (plot.drag && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
-        plot.drag.moved = true; plot.view = panRange(plot.rows.length, plot.drag.view, dx, plot.geometry.right - plot.geometry.left); plot.hover = null; savedViews.set(key, plot.view);
-      } else if (!plot.drag?.moved) plot.hover = pointerIndex(plot.view, event.clientX - canvas.getBoundingClientRect().left, plot.geometry.left, plot.geometry.right, plot.rows);
+      if (plot.drag && !plot.drag.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 10) plot.drag.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      // Once horizontal movement is established, keep following the same finger
+      // through the origin; the threshold applies only when choosing an axis.
+      if (plot.drag?.axis === 'x') {
+        plot.view = panRange(plot.rows.length, plot.drag.view, dx, plot.geometry.right - plot.geometry.left); plot.hover = null; savedViews.set(key, plot.view);
+      } else if (plot.drag?.axis === 'y') plot.hover = null;
+      else plot.hover = pointerIndex(plot.view, event.clientX - canvas.getBoundingClientRect().left, plot.geometry.left, plot.geometry.right, plot.rows);
       scheduleDraw(plot);
     });
-    canvas.addEventListener('pointerup', event => { if (!plot.drag?.moved && plot.geometry) plot.hover = pointerIndex(plot.view, event.clientX - canvas.getBoundingClientRect().left, plot.geometry.left, plot.geometry.right, plot.rows); plot.drag = null; scheduleDraw(plot); });
-    canvas.addEventListener('pointercancel', () => { plot.drag = null; });
+    canvas.addEventListener('pointerup', event => { if (!plot.drag || plot.drag.id !== event.pointerId) return; if (!plot.drag.axis && plot.geometry) plot.hover = pointerIndex(plot.view, event.clientX - canvas.getBoundingClientRect().left, plot.geometry.left, plot.geometry.right, plot.rows); plot.drag = null; scheduleDraw(plot); });
+    canvas.addEventListener('pointercancel', event => { if (plot.drag?.id === event.pointerId) { plot.drag = null; plot.hover = null; scheduleDraw(plot); } });
     canvas.addEventListener('pointerleave', () => { if (!plot.drag) { plot.hover = null; scheduleDraw(plot); } });
     canvas.addEventListener('keydown', event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); plot.hover = event.key === 'Home' ? plot.view.start : event.key === 'End' ? plot.view.end - 1 : Math.max(plot.view.start, Math.min(plot.view.end - 1, (plot.hover ?? plot.view.end - 1) + (event.key === 'ArrowRight' ? 1 : -1))); drawPlot(plot); });
     if ('ResizeObserver' in window) { plot.resize = new ResizeObserver(() => scheduleDraw(plot)); plot.resize.observe(canvas); }
@@ -351,7 +395,7 @@
     if (!event.target.closest('.mp-page')) return;
     const market = event.target.closest('[data-mp-market]')?.dataset.mpMarket;
     if (market) { open(state.page, market); return; }
-    if (event.target.closest('[data-mp-retry]')) { open(state.page, state.market); return; }
+    if (event.target.closest('[data-mp-retry]')) { retryPage(); return; }
     const sector = event.target.closest('[data-mp-sector]')?.dataset.mpSector;
     if (sector) { state.sector = sector; state.listPage = 1; byId('mpSectorFilter').value = sector; renderCompanies(); byId('mpSectorFilter').scrollIntoView({behavior: 'smooth', block: 'center'}); return; }
     const page = event.target.closest('[data-mp-list-page]');
