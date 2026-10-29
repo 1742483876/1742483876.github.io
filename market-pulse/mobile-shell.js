@@ -1,10 +1,14 @@
 'use strict';
 (function(){
-  const BUILD='89a0dd7d8ce74e93';
+  const BUILD='fde9c3d723b12f26';
   const PAGES={chart:'行情',signals:'近期 S 点',sectors:'板块与公司',temperature:'市场温度',research:'策略研究',help:'使用说明'};
   function route(value){const key=String(value||'').replace(/^#/,'');return Object.hasOwn(PAGES,key)?key:'chart';}
   function buildState(current,remote){if(!/^[a-f0-9]{16}$/.test(remote||''))return 'unknown';return current===remote?'current':'available';}
-  if(typeof module!=='undefined'&&module.exports)module.exports={route,buildState};
+  function snapshotResource(raw,href){
+    try{const base=new URL('./',href),url=new URL(raw,base);if(url.origin!==base.origin||!url.pathname.startsWith(base.pathname))return null;const path=url.pathname.slice(base.pathname.length),resources={'data/catalog.json':{key:'core',label:'行情 / S 点'},'data/signals/recent.json':{key:'core',label:'行情 / S 点'},'data/analytics/catalog.json':{key:'analytics',label:'板块 / 市场温度'},'data/research/catalog.json':{key:'research',label:'冻结研究'},'data/archive/catalog.json':{key:'archive',label:'A 股历史档案'}};return Object.hasOwn(resources,path)?resources[path]:null;}catch(_){return null;}
+  }
+  function snapshotTime(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&/(Z|[+-]\d{2}:\d{2})$/.test(value)&&Number.isFinite(Date.parse(value))?Date.parse(value):null;}
+  if(typeof module!=='undefined'&&module.exports)module.exports={route,buildState,snapshotResource};
   if(typeof document==='undefined')return;
   const $=id=>document.getElementById(id),main=document.querySelector('main');
   if(!main)return;
@@ -45,8 +49,37 @@
   window.PulseMobileShell={navigate:page=>show(page,{write:true}),getPage:()=>selected};
   show(location.hash);
 
-  let latest=null,checking=false;
-  const status=text=>{$('mobileVersionStatus').textContent=text;};
+  let latest=null,checking=false,baseStatus='手机版 · 独立页面导航',coreNoticeRequest=0;
+  const dataNotices=new Map();
+  function renderStatus(){
+    const notices=[...dataNotices.values()].filter(n=>n.checked),updates=notices.filter(n=>!n.fallback),fallbacks=notices.filter(n=>n.fallback);
+    const message=[updates.length?updates.map(n=>n.label).join('、')+'有新快照，可重新载入查看':'',fallbacks.length?fallbacks.map(n=>n.label).join('、')+'未能在线确认，沿用已存快照':''].filter(Boolean).join('；');
+    $('mobileVersionStatus').textContent=baseStatus+(message?' · '+message:'');
+    $('refreshMobileSnapshot').hidden=!notices.length;$('refreshMobileSnapshot').textContent=updates.length?'载入新数据':'重试更新';
+  }
+  const status=text=>{baseStatus=text;renderStatus();};
+  async function reconcileCoreNotice(){
+    const notice=dataNotices.get('core');if(!notice)return;const own=++coreNoticeRequest;
+    const pending=Promise.resolve().then(()=>{if(!window.PulseCoreCatalog?.get)throw new Error('catalog unavailable');return window.PulseCoreCatalog.get();});
+    const apply=catalog=>{
+      if(own!==coreNoticeRequest||dataNotices.get('core')!==notice)return;
+      const loaded=snapshotTime(catalog?.snapshot_at);
+      if(catalog?.snapshot_at===notice.version||loaded!==null&&loaded>snapshotTime(notice.version))dataNotices.delete('core');else notice.checked=true;
+      renderStatus();
+    };
+    try{apply(await bounded(pending,4000));}
+    catch(_){if(own!==coreNoticeRequest||dataNotices.get('core')!==notice)return;notice.checked=true;renderStatus();void pending.then(apply,()=>{});}
+  }
+  function snapshotMessage(message){
+    if(!['PULSE_SNAPSHOT_UPDATED','PULSE_PREVIOUS_BUILD_FALLBACK'].includes(message?.type))return;
+    const resource=snapshotResource(message.url,location.href);if(!resource)return;
+    if(message.type==='PULSE_PREVIOUS_BUILD_FALLBACK'){dataNotices.set('fallback:'+resource.key,{...resource,checked:true,fallback:true});renderStatus();return;}
+    const version=snapshotTime(message.version);if(version===null)return;
+    const previous=dataNotices.get(resource.key);if(previous&&snapshotTime(previous.version)>version)return;
+    dataNotices.delete('fallback:'+resource.key);
+    dataNotices.set(resource.key,{...resource,version:message.version,checked:resource.key!=='core'});
+    if(resource.key==='core')void reconcileCoreNotice();else renderStatus();
+  }
   async function check(){
     if(checking)return;checking=true;$('checkMobileUpdate').disabled=true;
     if(BUILD.startsWith('__')){status('本地预览 · 发布后可检查手机更新');checking=false;$('checkMobileUpdate').disabled=false;return;}
@@ -84,6 +117,7 @@
   }
   $('checkMobileUpdate').addEventListener('click',check);$('applyMobileUpdate').addEventListener('click',applyUpdate);
   $('refreshMobileSnapshot').addEventListener('click',()=>location.reload());
-  navigator.serviceWorker?.addEventListener('message',event=>{if(event.data?.type==='PULSE_SNAPSHOT_UPDATED'){status('已有新数据快照 · 当前图表保持不变');$('refreshMobileSnapshot').textContent='载入新数据';$('refreshMobileSnapshot').hidden=false;}else if(event.data?.type==='PULSE_PREVIOUS_BUILD_FALLBACK'){status('当前目录未能在线更新，沿用上次保存的快照');$('refreshMobileSnapshot').textContent='重试更新';$('refreshMobileSnapshot').hidden=false;}});
+  navigator.serviceWorker?.addEventListener('message',event=>snapshotMessage(event.data));
+  window.addEventListener('pulse:market',()=>{void reconcileCoreNotice();});
   void check();
 }());

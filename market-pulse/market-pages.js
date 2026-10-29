@@ -29,6 +29,24 @@
     }
     return data;
   }
+  function validateLeaf(data, kind) {
+    const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    const records = value => Array.isArray(value) && value.every(object);
+    const dates = value => records(value) && value.every(row => validDate(row.date) !== null);
+    const notes = value => value == null || Array.isArray(value) && value.every(item => typeof item === 'string');
+    let valid = notes(data.notes) && notes(data.limitations);
+    if (kind === 'environment') {
+      valid = valid && ['index_series', 'breadth_series', 'trin_series'].every(key => dates(data[key])) &&
+        ['index', 'breadth', 'trin', 'pcr'].every(key => data[key] == null || object(data[key]) && notes(data[key].notes)) &&
+        records(data.pcr_series) && data.pcr_series.every(series => typeof series.id === 'string' && series.id.length > 0 && ['volume', 'oi'].includes(series.measure) && dates(series.rows)) &&
+        new Set(data.pcr_series.map(series => series.id)).size === data.pcr_series.length;
+    } else if (kind === 'sectors') {
+      valid = valid && records(data.sectors) && data.sectors.every(sector => typeof sector.id === 'string' && (sector.companies == null || records(sector.companies))) &&
+        ['companies', 'funds'].every(key => data[key] == null || records(data[key]));
+    }
+    if (!valid) throw new Error('分析快照数据结构无效，请重新读取。');
+    return data;
+  }
   function cap(value, currency) {
     if (!finite(value) || value <= 0) return '市值待补';
     const base = value >= 1e12 ? 1e12 : value >= 1e8 ? 1e8 : value >= 1e4 ? 1e4 : 1;
@@ -172,46 +190,60 @@
   function marketTabs() { return `<nav class="mp-markets" aria-label="本页市场">${Object.entries(MARKETS).map(([code, info]) => `<button type="button" data-mp-market="${code}" aria-pressed="${code === state.market}">${info[0]}</button>`).join('')}</nav>`; }
   function heading(title, subtitle) { return `<div class="mp-heading"><span class="eyebrow">HISTORICAL SNAPSHOT</span><h1>${title}</h1><p>${subtitle}</p></div>`; }
   function notesHTML(notes, title = '数据口径与限制') { return Array.isArray(notes) && notes.length ? `<details class="mp-notes"><summary>${esc(title)}</summary>${notes.filter(n => typeof n === 'string').map(n => `<p>${esc(n)}</p>`).join('')}</details>` : ''; }
-  async function read(path, version, market) {
+  async function fetchBody(url, reload) {
+    const controller = new AbortController(); let timer;
+    const body = (async () => {
+      const response = await fetch(url, {cache: reload ? 'reload' : 'no-cache', signal: controller.signal});
+      if (!response.ok) throw new Error('这份页面快照尚未发布，或本机离线时没有缓存。');
+      return response.json();
+    })();
+    // Leave the worker's 20-second cold-read deadline time to settle first.
+    // The same bound also protects an uncontrolled first visit and slow bodies.
+    try { return await Promise.race([body, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('分析快照读取超时，请重新读取。')), 25000);
+    })]); } finally { clearTimeout(timer); controller.abort(); }
+  }
+  async function read(path, version, market, reload = false, kind = null) {
     let url = safePath(path); if (version) url += '?v=' + encodeURIComponent(version);
     const generation = readGeneration, validate = data => {
       if (path === 'data/analytics/catalog.json') return validateCatalog(data);
       if (version && (data?.schema_version !== 'mobile-analytics-1' || data.historical_only !== true || data.snapshot_at !== version)) throw new Error('分析快照版本不一致，请检查更新后重试。');
       if (market && data?.market !== market) throw new Error('返回市场与当前选择不一致，停止展示。');
       if (market && data?.currency && data.currency !== MARKETS[market][1]) throw new Error('目录币种不一致，停止比较市值。');
-      return data;
+      return validateLeaf(data, kind);
     };
+    if (reload) { loaded.delete(url); pending.delete(url); }
     if (loaded.has(url)) return validate(loaded.get(url));
     if (pending.has(url)) return validate(await pending.get(url));
-    const promise = (async () => { const response = await fetch(url, {cache: 'no-cache'}); if (!response.ok) throw new Error('这份页面快照尚未发布，或本机离线时没有缓存。'); const data = validate(await response.json()); if (generation === readGeneration) { loaded.set(url, data); window.PulseOffline?.remember(url); } return data; })();
+    const promise = (async () => { const data = validate(await fetchBody(url, reload)); if (generation === readGeneration) { loaded.set(url, data); window.PulseOffline?.remember(url); } return data; })();
     pending.set(url, promise); try { return await promise; } finally { if (pending.get(url) === promise) pending.delete(url); }
   }
-  async function catalog() {
-    if (state.catalog) return state.catalog;
-    const generation = readGeneration, data = await read('data/analytics/catalog.json');
+  async function catalog(reload = false) {
+    if (state.catalog && !reload) return state.catalog;
+    const generation = readGeneration, data = await read('data/analytics/catalog.json', undefined, undefined, reload);
     if (generation === readGeneration) state.catalog = data;
     return data;
   }
   function retryPage() {
-    // Refresh only this module's catalog. Valid version-bound leaf snapshots and
-    // browser offline history remain intact; older requests cannot repopulate it.
-    readGeneration++; state.catalog = null; loaded.delete('data/analytics/catalog.json'); pending.clear();
-    open(state.page, state.market);
+    // Refresh this page's catalog and selected leaf only. Other validated
+    // snapshots remain intact; older requests cannot repopulate their entries.
+    readGeneration++; state.catalog = null;
+    open(state.page, state.market, true);
   }
   function resourceFor(c, kind, market) {
     const item = Array.isArray(c.markets) ? c.markets.find(x => x.id === market) : c.markets?.[market];
     return item?.[kind + '_url'] || c[kind + '_urls']?.[market] || `data/analytics/${kind}-${market}.json`;
   }
-  async function open(pageId, market) {
+  async function open(pageId, market, reload = false) {
     if (!PAGE_IDS[pageId]) return;
     state.page = pageId; if (MARKETS[market]) state.market = market;
     const own = ++state.serial, selectedMarket = state.market;
     if (pageId === 'help') { renderHelp(); return; }
     pageRoot().innerHTML = heading(pageId === 'sectors' ? '板块里有哪些公司？' : '指数背后，有多少人在涨？', '按需读取已发布的公共快照。') + '<p class="mp-note" role="status">正在读取本市场历史数据…</p><div class="mp-skeleton" aria-hidden="true"></div><div class="mp-skeleton large" aria-hidden="true"></div>';
     try {
-      const c = await catalog(); if(own!==state.serial)return; const kind = pageId === 'sectors' ? 'sectors' : 'environment';
+      const c = await catalog(reload); if(own!==state.serial)return; const kind = pageId === 'sectors' ? 'sectors' : 'environment';
       if (pageId === 'sectors' && selectedMarket === 'BTC') { if (own !== state.serial) return; pageRoot('sectors').innerHTML = heading('比特币是单一资产。', '公司行业市值分类不适用于 BTC。这里保留现货历史入口，不与股票公司市值混算。') + `<section class="mp-card"><h2>BTC-USD</h2><p class="mp-note">美元计价的现货历史，不含杠杆合约。</p>${assetAction({code:'BTC-USD'})}</section>`; return; }
-      const data = await read(resourceFor(c, kind, selectedMarket), c.snapshot_at, selectedMarket);
+      const data = await read(resourceFor(c, kind, selectedMarket), c.snapshot_at, selectedMarket, reload, kind);
       if (own !== state.serial) return;
       if(data.schema_version!=='mobile-analytics-1'||data.historical_only!==true||data.snapshot_at!==c.snapshot_at)throw new Error('分析快照版本不一致，请检查更新后重试。');
       if (data.market !== selectedMarket) throw new Error('返回市场与当前选择不一致，停止展示。');
