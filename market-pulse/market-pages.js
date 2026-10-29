@@ -75,22 +75,41 @@
       index_pct: baseDate && date >= baseDate && priceMap.has(date) ? (priceMap.get(date) / base - 1) * 100 : null,
     }))};
   }
-  function viewRange(total, size = 60, end = total) {
+  function viewRange(total, size = 60, end = total, minimum = 8) {
     if (!Number.isInteger(total) || total <= 0) return {start: 0, end: 0, size: 0};
-    size = Math.max(Math.min(8, total), Math.min(total, Math.round(Number(size) || 60)));
-    end = Math.max(size, Math.min(total, Math.round(Number(end) || total)));
+    size = Math.max(Math.min(minimum, total), Math.min(total, Math.round(Number(size) || 60)));
+    const requestedEnd = Number(end);
+    end = Math.max(size, Math.min(total, Math.round(Number.isFinite(requestedEnd) ? requestedEnd : total)));
     return {start: end - size, end, size};
   }
   function zoomRange(total, view, factor, anchor = .5) {
     if (!total) return viewRange(0);
     anchor = Math.max(0, Math.min(1, Number(anchor) || 0));
-    const size = viewRange(total, view.size * factor).size;
+    const minimum = Math.min(8, view.size), size = viewRange(total, view.size * factor, total, minimum).size;
     const focus = view.start + anchor * Math.max(0, view.size - 1);
-    return viewRange(total, size, Math.round(focus - anchor * (size - 1)) + size);
+    return viewRange(total, size, Math.round(focus - anchor * (size - 1)) + size, minimum);
   }
   function panRange(total, view, pixels, width) {
     if (!finite(width) || width <= 0 || !finite(pixels)) return {...view};
-    return viewRange(total, view.size, view.end - Math.round(pixels / width * view.size));
+    return viewRange(total, view.size, view.end - Math.round(pixels / width * view.size), 1);
+  }
+  function windowDates(rows, view) {
+    return view.size ? {start:rows[view.start]?.date, end:rows[view.end - 1]?.date} : null;
+  }
+  function restoreDateWindow(rows, saved) {
+    if (!rows.length) return viewRange(0);
+    const from=validDate(saved?.start), to=validDate(saved?.end);
+    if (from===null || to===null || from>to) return viewRange(rows.length);
+    const nearest = time => {
+      let lo=0,hi=rows.length;
+      while(lo<hi){const mid=Math.floor((lo+hi)/2);if(validDate(rows[mid].date)<time)lo=mid+1;else hi=mid;}
+      if(!lo)return 0;if(lo===rows.length)return rows.length-1;
+      return time-validDate(rows[lo-1].date)<=validDate(rows[lo].date)-time?lo-1:lo;
+    };
+    const start=nearest(from), end=nearest(to)+1;
+    // A saved calendar window can contain fewer than eight observations after
+    // changing curves. Keep those dates instead of expanding to recent data.
+    return viewRange(rows.length, end-start, end, 1);
   }
   function pointerIndex(view, x, left, right, rows = null) {
     if (!view.size || !finite(x) || right <= left) return null;
@@ -202,7 +221,7 @@
     const selected = (data.pcr_series || []).find(s => s.id === id);
     return selected ? {series: selected, rows: datedRows(selected.rows, ['value'])} : {series: null, rows: []};
   }
-  const exported = {esc, num, validDate, safePath, cap, datedRows, alignSeries, viewRange, zoomRange, panRange, pointerIndex, lineSegments, normalizeDirectory, directoryRows, coreLink, archiveDirectory, archiveLink, sectorPreferences, readSectorPreferences, writeSectorPreferences, validCaps, pcrRows, validTrinRows, fundGroups, fundGroupsHTML, fundsHTML};
+  const exported = {esc, num, validDate, safePath, cap, datedRows, alignSeries, viewRange, zoomRange, panRange, windowDates, restoreDateWindow, pointerIndex, lineSegments, normalizeDirectory, directoryRows, coreLink, archiveDirectory, archiveLink, sectorPreferences, readSectorPreferences, writeSectorPreferences, validCaps, pcrRows, validTrinRows, fundGroups, fundGroupsHTML, fundsHTML};
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof document === 'undefined') return;
 
@@ -210,7 +229,7 @@
   let browseStorage = null; try { browseStorage = window.sessionStorage; } catch (_) {}
   const savedSectorPreferences = readSectorPreferences(browseStorage);
   const sectorBrowse = new Map(Object.entries(savedSectorPreferences.markets)), archive = {status:'idle', directory:null, pending:null, error:'', requested:savedSectorPreferences.archiveRequested};
-  const loaded = new Map(), pending = new Map(), plots = new Map();
+  const loaded = new Map(), pending = new Map(), plots = new Map(), pcrChoices = new Map();
   let readGeneration = 0;
   const byId = id => document.getElementById(id);
   for (const [page, id] of Object.entries(PAGE_IDS)) {
@@ -286,7 +305,7 @@
         state.sector = data.sectors.some(s => s.id === saved.sector) ? saved.sector : 'all';
         state.query = saved.query || ''; state.sort = saved.sort || 'code'; state.listPage = saved.listPage || 1; state.fundQuery = saved.fundQuery || '';
         renderSectors();
-      } else { state.environment = data; if (!(data.pcr_series || []).some(p => p.id === state.pcr)) state.pcr = data.pcr_series?.[0]?.id || null; renderEnvironment(); }
+      } else { state.environment = data; const saved=pcrChoices.get(selectedMarket); state.pcr=(data.pcr_series || []).some(p=>p.id===saved)?saved:data.pcr_series?.[0]?.id||null; if(state.pcr)pcrChoices.set(selectedMarket,state.pcr); renderEnvironment(); }
     } catch (error) {
       if (own !== state.serial) return;
       pageRoot().innerHTML = heading(pageId === 'sectors' ? '板块与公司' : '市场温度', '历史快照，不提供当前实时买卖提示。') + `<div class="mp-empty">${esc(error.message)}<p><button type="button" data-mp-retry>重新读取</button></p></div>`;
@@ -375,23 +394,33 @@
       {id: 'breadth', title: '上涨覆盖面', tag: '样本占比', rows: breadthRows, series: [{key: 'up_pct', label: '上涨占比', color: COLORS[0]}, ...(state.breadthMa ? [{key: 'ma20_pct', label: 'MA20 上方占比', color: COLORS[1]}] : [])], unit: '%', bounds: [0, 100], reference: 50, reason: d.breadth?.reason || '该市场没有已发布的涨跌家数统计。', explanation: '上涨占比 = 当日上涨家数 ÷ 有效样本家数。MA20 上方占比看多少只股票高于各自最近 20 根均价。它们说明参与面，不能单独给出买卖结论。'},
       {id: 'trin', title: '阿姆士 TRIN', tag: '量能分布', rows: validTrinRows(d), series: [{key: 'value', label: 'TRIN', color: COLORS[2]}], unit: '倍', reference: 1, reason: d.trin?.reason || '没有同时具备可靠涨跌家数与两组成交量，暂不绘图。', explanation: 'TRIN =（上涨家数 / 下跌家数）÷（上涨股成交量 / 下跌股成交量）。只有样本与成交量单位一致时，低于 1 才可解释为相对量能偏向上涨侧；高于 1 偏向下跌侧。分母为零或来源不可靠时不计算。'},
       {id: 'ad', title: '累计净上涨家数', tag: 'A / D', rows: breadthRows, series: [{key: 'ad', label: '累计 A/D', color: COLORS[3]}], unit: '家', reference: 0, reason: d.breadth?.reason || '缺少连续可验证的涨跌家数，无法展示累计线。', explanation: '每日净上涨家数 = 上涨家数 − 下跌家数，再按源快照累计。缺口不补零、不补涨跌家数；样本变化和统计区间会影响绝对值，不宜跨市场直接比较。'},
-      {id: 'pcr', title: '期权认沽 / 认购比', tag: 'PCR', rows: pcr.rows, series: [{key: 'value', label: pcr.series?.label || 'PCR', color: COLORS[1]}], unit: '倍', reference: 1, reason: d.pcr?.reason || '该市场对应期权范围与统计口径尚未接入。', explanation: `PCR = 认沽期权${pcr.series?.measure === 'oi' ? '持仓量' : '成交量'} ÷ 认购期权${pcr.series?.measure === 'oi' ? '持仓量' : '成交量'}。认沽较多可能是防守，也可能是对冲；成交量与持仓量口径不能混用。期权产品范围未必等于叠加的股票指数。`},
+      {id: 'pcr', title: '期权认沽 / 认购比', tag: 'PCR', rows: pcr.rows, series: [{key: 'value', label: pcr.series?.label || 'PCR', color: COLORS[1]}], unit: '倍', reference: 1, reason: pcr.series ? '所选 PCR 序列没有有效观测值，可在统计范围与口径中切换其他序列。' : d.pcr?.reason || '该市场对应期权范围与统计口径尚未接入。', explanation: `PCR = 认沽期权${pcr.series?.measure === 'oi' ? '持仓量' : '成交量'} ÷ 认购期权${pcr.series?.measure === 'oi' ? '持仓量' : '成交量'}。认沽较多可能是防守，也可能是对冲；成交量与持仓量口径不能混用。期权产品范围未必等于叠加的股票指数。`},
     ];
   }
   function hasPanelData(panel) { return panel.rows.some(r => panel.series.some(s => finite(r[s.key]))); }
   const savedViews = new Map();
+  function rememberPlotView(plot, replace = true) {
+    const dates=windowDates(plot.rows,plot.view);
+    if(dates&&(replace||!savedViews.has(plot.key)))savedViews.set(plot.key,dates);
+  }
+  function environmentPanelHTML(s,d) {
+    const source=s.id==='price'?d.index:s.id==='pcr'?d.pcr:d.breadth;
+    const selector=s.id==='breadth'?`<label class="mp-chart-extra"><input type="checkbox" id="mpBreadthMa" ${state.breadthMa?'checked':''}>同时显示 MA20 上方占比</label>`:s.id==='pcr'?`<label class="mp-chart-extra">统计范围与口径<select id="mpPcrSeries">${(d.pcr_series||[]).map(p=>`<option value="${esc(p.id)}" ${p.id===state.pcr?'selected':''}>${esc(p.label)} · ${p.measure==='oi'?'持仓量':'成交量'}</option>`).join('')}</select></label>`:'';
+    const chart=hasPanelData(s)?`<div class="mp-chart-tools"><span id="mpRange-${s.id}"></span><div><button type="button" data-mp-zoom="${s.id}" data-mp-scale="0.65" aria-label="放大${esc(s.title)}时间区间">＋</button><button type="button" data-mp-zoom="${s.id}" data-mp-scale="1.5" aria-label="缩小${esc(s.title)}时间区间">−</button><button type="button" data-mp-reset="${s.id}">重置</button></div></div><div class="mp-plot-legend" id="mpLegend-${s.id}"></div><canvas id="mpPlot-${s.id}" tabindex="0" aria-label="${esc(s.title)}历史时间曲线；左右方向键查看数值，横向拖动查看日期"></canvas><div id="mpReadout-${s.id}" class="mp-plot-readout" aria-live="polite"></div><p id="mpCompare-${s.id}" class="mp-note"></p>`:'<p class="mp-empty">所选统计范围与口径没有有效观测值。可在上方选择其他序列；缺失不按零值展示。</p>';
+    return `<article class="mp-chart-card" data-mp-chart="${s.id}"><div class="mp-card-head"><h2>${esc(s.title)}</h2><span>${esc(s.tag)}</span></div><p class="mp-source">来源截至 ${esc(source?.source_asof||'未返回')} · ${s.rows.filter(r=>s.series.some(k=>finite(r[k.key]))).length} 个有效观测日</p>${selector}${chart}<details class="mp-explain"><summary>这条线怎么看？</summary><p>${esc(s.explanation)}</p><p>统计范围：${esc(source?.scope||'详见数据口径')}</p></details></article>`;
+  }
   function renderEnvironment() {
-    const d = state.environment, specs = panelSpecs(d), supported = specs.filter(hasPanelData), unsupported = specs.filter(s => !hasPanelData(s));
+    const d = state.environment, specs = panelSpecs(d), selectable = s => hasPanelData(s) || s.id==='pcr' && (d.pcr_series||[]).length>0, supported = specs.filter(selectable), unsupported = specs.filter(s => !hasPanelData(s));
     const latestPrice = datedRows(d.index_series, ['value']).filter(r => r.value > 0).at(-1), latestBreadth = datedRows(d.breadth_series, ['up_pct', 'adv', 'dec', 'eligible']).filter(r => finite(r.up_pct)).at(-1);
-    for (const plot of plots.values()) plot.resize?.disconnect(); plots.clear();
+    for (const plot of plots.values()) { rememberPlotView(plot,false); plot.resize?.disconnect(); } plots.clear();
     pageRoot('temperature').innerHTML = heading('看走势，也看参与面。', '曲线取自已保存的日终数据。可添加已有曲线、缩放时间区间，或横向拖动复盘。') +
       `<div class="mp-snapshot">${esc(MARKETS[state.market][0])} · 指数截至 ${esc(latestPrice?.date || '未返回')} · 广度截至 ${esc(latestBreadth?.date || '未返回')}<small>${esc(d.index?.name || '指数')} 与 ${esc(d.breadth?.scope || '该市场统计范围尚未接入')}，成分范围可能不同。</small></div>` +
       `<div class="mp-environment-top"><div><span>最后保存的价格</span><strong>${num(latestPrice?.value)}</strong><small>${esc(state.market === 'BTC' ? 'USD' : '指数点')} · ${esc(latestPrice?.date || '无数据')}</small></div><div><span>最后有效上涨占比</span><strong>${finite(latestBreadth?.up_pct) ? num(latestBreadth.up_pct, 1) + '%' : '—'}</strong><small>${finite(latestBreadth?.eligible) ? num(latestBreadth.eligible, 0) + ' 个有效样本' : '样本待取得'}</small></div></div>` +
-      `<section class="mp-curve-picker"><div class="mp-card-head"><h2>添加 / 移除曲线</h2><span>不同单位分图显示</span></div><div class="mp-curve-options">${specs.map(s => `<label class="${hasPanelData(s) ? '' : 'mp-disabled'}"><input type="checkbox" data-mp-curve="${s.id}" ${state.curves.has(s.id) && hasPanelData(s) ? 'checked' : ''} ${hasPanelData(s) ? '' : 'disabled'}><span>${esc(s.title)}${hasPanelData(s) ? '' : '<small>暂不可用</small>'}</span></label>`).join('')}</div><label class="mp-overlay-check"><input type="checkbox" id="mpIndexOverlay" ${state.overlay ? 'checked' : ''}>在指标图叠加大盘走势（右轴，归一涨跌幅）</label><p class="mp-note">左轴读指标，右轴读金线涨跌幅；两条线相交没有买卖含义。每图可独立缩放、横拖；点图查看对应日期数值。</p></section>` +
-      `<div class="mp-plot-grid">${supported.filter(s => state.curves.has(s.id)).map(s => `<article class="mp-chart-card" data-mp-chart="${s.id}"><div class="mp-card-head"><h2>${esc(s.title)}</h2><span>${esc(s.tag)}</span></div><p class="mp-source">来源截至 ${esc((s.id==='price'?d.index:s.id==='pcr'?d.pcr:d.breadth)?.source_asof||'未返回')} · ${s.rows.filter(r=>s.series.some(k=>finite(r[k.key]))).length} 个有效观测日</p>${s.id === 'breadth' ? `<label class="mp-chart-extra"><input type="checkbox" id="mpBreadthMa" ${state.breadthMa ? 'checked' : ''}>同时显示 MA20 上方占比</label>` : ''}${s.id === 'pcr' ? `<label class="mp-chart-extra">统计范围与口径<select id="mpPcrSeries">${(d.pcr_series || []).map(p => `<option value="${esc(p.id)}" ${p.id === state.pcr ? 'selected' : ''}>${esc(p.label)} · ${p.measure === 'oi' ? '持仓量' : '成交量'}</option>`).join('')}</select></label>` : ''}<div class="mp-chart-tools"><span id="mpRange-${s.id}"></span><div><button type="button" data-mp-zoom="${s.id}" data-mp-scale="0.65" aria-label="放大${esc(s.title)}时间区间">＋</button><button type="button" data-mp-zoom="${s.id}" data-mp-scale="1.5" aria-label="缩小${esc(s.title)}时间区间">−</button><button type="button" data-mp-reset="${s.id}">重置</button></div></div><div class="mp-plot-legend" id="mpLegend-${s.id}"></div><canvas id="mpPlot-${s.id}" tabindex="0" aria-label="${esc(s.title)}历史时间曲线；左右方向键查看数值，横向拖动查看日期"></canvas><div id="mpReadout-${s.id}" class="mp-plot-readout" aria-live="polite"></div><p id="mpCompare-${s.id}" class="mp-note"></p><details class="mp-explain"><summary>这条线怎么看？</summary><p>${esc(s.explanation)}</p><p>统计范围：${esc((s.id==='price'?d.index:s.id==='pcr'?d.pcr:d.breadth)?.scope||'详见数据口径')}</p></details></article>`).join('') || '<p class="mp-empty">还没有选择可用曲线。勾选上方曲线即可添加。</p>'}</div>` +
+      `<section class="mp-curve-picker"><div class="mp-card-head"><h2>添加 / 移除曲线</h2><span>不同单位分图显示</span></div><div class="mp-curve-options">${specs.map(s => `<label class="${selectable(s) ? '' : 'mp-disabled'}"><input type="checkbox" data-mp-curve="${s.id}" ${state.curves.has(s.id) && selectable(s) ? 'checked' : ''} ${selectable(s) ? '' : 'disabled'}><span>${esc(s.title)}${hasPanelData(s) ? '' : '<small>暂不可用</small>'}</span></label>`).join('')}</div><label class="mp-overlay-check"><input type="checkbox" id="mpIndexOverlay" ${state.overlay ? 'checked' : ''}>在指标图叠加大盘走势（右轴，归一涨跌幅）</label><p class="mp-note">左轴读指标，右轴读金线涨跌幅；两条线相交没有买卖含义。每图可独立缩放、横拖；点图查看对应日期数值。</p></section>` +
+      `<div class="mp-plot-grid">${supported.filter(s => state.curves.has(s.id)).map(s => environmentPanelHTML(s,d)).join('') || '<p class="mp-empty">还没有选择可用曲线。勾选上方曲线即可添加。</p>'}</div>` +
       (unsupported.length ? `<details class="mp-notes mp-gaps" open><summary>尚未绘制的指标 · 缺口说明</summary>${unsupported.map(s => `<p><strong>${esc(s.title)}</strong>：${esc(s.reason)}</p>`).join('')}</details>` : '') +
       notesHTML([...(d.limitations || []), ...(d.notes || []), ...(d.breadth?.notes||[]), ...(d.pcr?.notes||[]), `来源：指数 ${d.index?.source || '未返回'}；广度 ${d.breadth?.source || '未返回'}；期权 ${d.pcr?.source || '未返回'}。`, '各曲线只按同一个交易日期对齐，不填补缺值，也不把之后的指数价格移动到之前。', '以上都是历史环境观察，未加入当前买卖信号和等级计算。']);
-    for (const panel of supported.filter(s => state.curves.has(s.id))) mountPlot(panel, d);
+    for (const panel of supported.filter(s => state.curves.has(s.id) && hasPanelData(s))) mountPlot(panel, d);
   }
   function plotPalette() {
     const p = window.PulseTheme?.palette?.() || {}, css = getComputedStyle(document.documentElement), color = (key, fallback) => css.getPropertyValue(key).trim() || fallback;
@@ -400,11 +429,15 @@
   }
   function scheduleDraw(plot) { if(plot.queued)return; plot.queued=true; requestAnimationFrame(()=>{plot.queued=false;if(plot.canvas.isConnected)drawPlot(plot);}); }
   function mountPlot(panel, data) {
-    const index = panel.id === 'price' || !state.overlay ? [] : data.index_series;
+    // The overlay controls the right-hand line, not the calendar grid. Keep
+    // known index dates as null metric observations when it is switched off.
+    const index = panel.id === 'price' ? [] : data.index_series;
     const aligned = alignSeries(panel.rows, panel.series, index,typeof data.snapshot_at==='string'?data.snapshot_at.slice(0,10):null);
+    if(!state.overlay)for(const row of aligned.rows){row.index_value=null;row.index_pct=null;}
     const key = `${state.market}:${panel.id}:${panel.id === 'pcr' ? state.pcr : ''}`;
     const old = savedViews.get(key), canvas = byId('mpPlot-' + panel.id);
-    const plot = {panel, canvas, rows: aligned.rows, key, view: old ? viewRange(aligned.rows.length, old.size, old.end) : viewRange(aligned.rows.length), hover: null, drag: null, geometry: null};
+    const plot = {panel, canvas, rows: aligned.rows, key, view: restoreDateWindow(aligned.rows,old), hover: null, drag: null, geometry: null};
+    const actual=windowDates(plot.rows,plot.view);plot.rangeNote=old&&actual&&(old.start!==actual.start||old.end!==actual.end)?' 原窗口日期在当前序列中不完整，已对齐附近可用日期。':'';
     plots.set(panel.id, plot);
     canvas.addEventListener('pointerdown', event => {
       if (plot.drag || event.isPrimary === false || (event.button != null && event.button !== 0)) return;
@@ -418,7 +451,7 @@
       // Once horizontal movement is established, keep following the same finger
       // through the origin; the threshold applies only when choosing an axis.
       if (plot.drag?.axis === 'x') {
-        plot.view = panRange(plot.rows.length, plot.drag.view, dx, plot.geometry.right - plot.geometry.left); plot.hover = null; savedViews.set(key, plot.view);
+        plot.view = panRange(plot.rows.length, plot.drag.view, dx, plot.geometry.right - plot.geometry.left); plot.hover = null; plot.rangeNote='';rememberPlotView(plot);
       } else if (plot.drag?.axis === 'y') plot.hover = null;
       else plot.hover = pointerIndex(plot.view, event.clientX - canvas.getBoundingClientRect().left, plot.geometry.left, plot.geometry.right, plot.rows);
       scheduleDraw(plot);
@@ -451,7 +484,7 @@
     plot.geometry = {left, right};
     const timeStart = validDate(rows[0].date), timeEnd = Math.max(timeStart + 86400000, validDate(rows.at(-1).date));
     const x = date => left + (validDate(date) - timeStart) / (timeEnd - timeStart) * (right - left);
-    byId('mpRange-' + panel.id).textContent = `${rows[0].date} — ${rows.at(-1).date} · ${rows.length} 日`;
+    byId('mpRange-' + panel.id).textContent = `${rows[0].date} — ${rows.at(-1).date} · ${rows.length} 日${plot.rangeNote}`;
     if (!values.length) { c.fillStyle = colors.muted; c.font = '12px sans-serif'; c.fillText('这段日期没有有效观测值', 14, height / 2); c.fillText('可缩小或横拖查看其他日期', 14, height / 2 + 24); byId('mpReadout-' + panel.id).textContent = '当前窗口缺失，不按零值展示。'; byId('mpCompare-' + panel.id).textContent = '缺口保留为空，不用相邻日期回填。'; return; }
     const range = domain(values, panel.reference); if (panel.bounds) [range.lo, range.hi] = panel.bounds; else if (panel.unit === '倍') range.lo = Math.max(0, range.lo);
     const indexRange = indexValues.length ? domain(indexValues, 0) : null;
@@ -515,7 +548,7 @@
     if (page) { state.listPage = Number(page.dataset.mpListPage); renderCompanies(); return; }
     const zoom = event.target.closest('[data-mp-zoom]'), reset = event.target.closest('[data-mp-reset]');
     const plot = plots.get(zoom?.dataset.mpZoom || reset?.dataset.mpReset);
-    if (plot) { plot.view = zoom ? zoomRange(plot.rows.length, plot.view, Number(zoom.dataset.mpScale), plot.hover === null ? .5 : (plot.hover - plot.view.start) / Math.max(1, plot.view.size - 1)) : viewRange(plot.rows.length); plot.hover = null; savedViews.set(plot.key, plot.view); drawPlot(plot); }
+    if (plot) { plot.view = zoom ? zoomRange(plot.rows.length, plot.view, Number(zoom.dataset.mpScale), plot.hover === null ? .5 : (plot.hover - plot.view.start) / Math.max(1, plot.view.size - 1)) : viewRange(plot.rows.length); plot.hover = null;plot.rangeNote='';rememberPlotView(plot);drawPlot(plot); }
   });
   document.addEventListener('input', event => { if (event.target.id === 'mpCompanySearch') { state.query = event.target.value; state.listPage = 1; renderCompanies(); } if(event.target.id==='mpFundSearch'){ state.fundQuery = event.target.value; saveSectorBrowse(); byId('mpFundGroups').innerHTML=fundGroupsHTML(state.sectors,publicCoreCodes(),state.fundQuery); } });
   document.addEventListener('change', event => {
@@ -525,7 +558,7 @@
     if (t.dataset.mpCurve) { if (t.checked) state.curves.add(t.dataset.mpCurve); else state.curves.delete(t.dataset.mpCurve); renderEnvironment(); }
     if (t.id === 'mpIndexOverlay') { state.overlay = t.checked; renderEnvironment(); }
     if (t.id === 'mpBreadthMa') { state.breadthMa = t.checked; renderEnvironment(); }
-    if (t.id === 'mpPcrSeries') { state.pcr = t.value; renderEnvironment(); }
+    if (t.id === 'mpPcrSeries' && (state.environment?.pcr_series||[]).some(p=>p.id===t.value)) { state.pcr = t.value;pcrChoices.set(state.market,state.pcr);renderEnvironment(); }
   });
   window.addEventListener('pulse:page', event => { if (PAGE_IDS[event.detail?.page]) open(event.detail.page, event.detail.market); else { state.active = false; state.serial++; } });
   window.addEventListener('pulse:theme',()=>{for(const plot of plots.values())scheduleDraw(plot);});
