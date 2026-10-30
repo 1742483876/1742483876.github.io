@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-  const BUILD='6ee45ae91843277b';
+  const BUILD='46f5d76eb578bec9';
   const PAGES={chart:'行情',signals:'近期 S 点',sectors:'板块与公司',temperature:'市场温度',research:'策略研究',help:'使用说明'};
   function route(value){const key=String(value||'').replace(/^#/,'');return Object.hasOwn(PAGES,key)?key:'chart';}
   function buildState(current,remote){if(!/^[a-f0-9]{16}$/.test(remote||''))return 'unknown';return current===remote?'current':'available';}
@@ -8,6 +8,14 @@
     try{const base=new URL('./',href),url=new URL(raw,base);if(url.origin!==base.origin||!url.pathname.startsWith(base.pathname))return null;const path=url.pathname.slice(base.pathname.length),resources={'data/catalog.json':{key:'core',label:'行情 / S 点'},'data/signals/recent.json':{key:'core',label:'行情 / S 点'},'data/analytics/catalog.json':{key:'analytics',label:'板块 / 市场温度'},'data/research/catalog.json':{key:'research',label:'冻结研究'},'data/archive/catalog.json':{key:'archive',label:'A 股历史档案'}};return Object.hasOwn(resources,path)?resources[path]:null;}catch(_){return null;}
   }
   function snapshotTime(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&/(Z|[+-]\d{2}:\d{2})$/.test(value)&&Number.isFinite(Date.parse(value))?Date.parse(value):null;}
+  function compareSnapshots(left,right){
+    const a=snapshotTime(left),b=snapshotTime(right);if(a===null||b===null)return null;
+    if(a!==b)return a>b?1:-1;
+    // Export versions include microseconds; Date.parse alone truncates them.
+    const tail=v=>(v.match(/\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1]||'').slice(3);
+    const x=tail(left),y=tail(right),width=Math.max(x.length,y.length),px=x.padEnd(width,'0'),py=y.padEnd(width,'0');
+    return px===py?0:px>py?1:-1;
+  }
   if(typeof module!=='undefined'&&module.exports)module.exports={route,buildState,snapshotResource};
   if(typeof document==='undefined')return;
   const $=id=>document.getElementById(id),main=document.querySelector('main');
@@ -64,21 +72,30 @@
     const apply=catalog=>{
       if(own!==coreNoticeRequest||dataNotices.get('core')!==notice)return;
       const loaded=snapshotTime(catalog?.snapshot_at);
-      if(catalog?.snapshot_at===notice.version||loaded!==null&&loaded>snapshotTime(notice.version))dataNotices.delete('core');else notice.checked=true;
+      if(catalog?.snapshot_at===notice.version||loaded!==null&&compareSnapshots(catalog.snapshot_at,notice.version)>0)dataNotices.delete('core');else notice.checked=true;
       renderStatus();
     };
     try{apply(await bounded(pending,4000));}
     catch(_){if(own!==coreNoticeRequest||dataNotices.get('core')!==notice)return;notice.checked=true;renderStatus();void pending.then(apply,()=>{});}
+  }
+  function reconcileAnalyticsNotice(){
+    const notice=dataNotices.get('analytics');if(!notice)return;
+    // The getter acknowledges a validated, rendered leaf, not merely a new
+    // catalog in the worker cache. Null means loading, failed, or not opened.
+    let version;try{version=window.PulseMarketPages?.getSnapshot?.();}catch(_){}
+    const loaded=snapshotTime(version);
+    if(loaded!==null&&(version===notice.version||compareSnapshots(version,notice.version)>0))dataNotices.delete('analytics');
+    renderStatus();
   }
   function snapshotMessage(message){
     if(!['PULSE_SNAPSHOT_UPDATED','PULSE_PREVIOUS_BUILD_FALLBACK'].includes(message?.type))return;
     const resource=snapshotResource(message.url,location.href);if(!resource)return;
     if(message.type==='PULSE_PREVIOUS_BUILD_FALLBACK'){dataNotices.set('fallback:'+resource.key,{...resource,checked:true,fallback:true});renderStatus();return;}
     const version=snapshotTime(message.version);if(version===null)return;
-    const previous=dataNotices.get(resource.key);if(previous&&snapshotTime(previous.version)>version)return;
+    const previous=dataNotices.get(resource.key);if(previous&&compareSnapshots(previous.version,message.version)>0)return;
     dataNotices.delete('fallback:'+resource.key);
     dataNotices.set(resource.key,{...resource,version:message.version,checked:resource.key!=='core'});
-    if(resource.key==='core')void reconcileCoreNotice();else renderStatus();
+    if(resource.key==='core')void reconcileCoreNotice();else if(resource.key==='analytics')reconcileAnalyticsNotice();else renderStatus();
   }
   async function check(){
     if(checking)return;checking=true;$('checkMobileUpdate').disabled=true;
@@ -119,5 +136,6 @@
   $('refreshMobileSnapshot').addEventListener('click',()=>location.reload());
   navigator.serviceWorker?.addEventListener('message',event=>snapshotMessage(event.data));
   window.addEventListener('pulse:market',()=>{void reconcileCoreNotice();});
+  window.addEventListener('pulse:analytics-snapshot',reconcileAnalyticsNotice);
   void check();
 }());

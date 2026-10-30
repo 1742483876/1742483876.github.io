@@ -230,7 +230,7 @@
   const savedSectorPreferences = readSectorPreferences(browseStorage);
   const sectorBrowse = new Map(Object.entries(savedSectorPreferences.markets)), archive = {status:'idle', directory:null, pending:null, error:'', requested:savedSectorPreferences.archiveRequested};
   const loaded = new Map(), pending = new Map(), plots = new Map(), pcrChoices = new Map();
-  let readGeneration = 0;
+  let readGeneration = 0, displayedSnapshot = null;
   const byId = id => document.getElementById(id);
   for (const [page, id] of Object.entries(PAGE_IDS)) {
     if (byId(id)) continue;
@@ -288,9 +288,10 @@
   async function open(pageId, market, reload = false) {
     if (!PAGE_IDS[pageId]) return;
     state.page = pageId; state.active = true; if (MARKETS[market]) state.market = market;
+    displayedSnapshot = null;
     const own = ++state.serial, selectedMarket = state.market;
     if (pageId === 'help') { renderHelp(); return; }
-    pageRoot().innerHTML = heading(pageId === 'sectors' ? '板块里有哪些公司？' : '指数背后，有多少人在涨？', '按需读取已发布的公共快照。') + '<p class="mp-note" role="status">正在读取本市场历史数据…</p><div class="mp-skeleton" aria-hidden="true"></div><div class="mp-skeleton large" aria-hidden="true"></div>';
+    pageRoot().innerHTML = heading(pageId === 'sectors' ? '板块里有哪些公司？' : selectedMarket === 'BTC' ? '查看比特币现货历史价格。' : '查看市场历史指数走势。', '按需读取已发布的公共快照。') + '<p class="mp-note" role="status">正在读取本市场历史数据…</p><div class="mp-skeleton" aria-hidden="true"></div><div class="mp-skeleton large" aria-hidden="true"></div>';
     try {
       const c = await catalog(reload); if(own!==state.serial)return; const kind = pageId === 'sectors' ? 'sectors' : 'environment';
       if (pageId === 'sectors' && selectedMarket === 'BTC') { if (own !== state.serial) return; pageRoot('sectors').innerHTML = heading('比特币是单一资产。', '公司行业市值分类不适用于 BTC。这里保留现货历史入口，不与股票公司市值混算。') + `<section class="mp-card"><h2>BTC-USD</h2><p class="mp-note">美元计价的现货历史，不含杠杆合约。</p>${assetAction({code:'BTC-USD'})}</section>`; return; }
@@ -306,6 +307,10 @@
         state.query = saved.query || ''; state.sort = saved.sort || 'code'; state.listPage = saved.listPage || 1; state.fundQuery = saved.fundQuery || '';
         renderSectors();
       } else { state.environment = data; const saved=pcrChoices.get(selectedMarket); state.pcr=(data.pcr_series || []).some(p=>p.id===saved)?saved:data.pcr_series?.[0]?.id||null; if(state.pcr)pcrChoices.set(selectedMarket,state.pcr); renderEnvironment(); }
+      if (own !== state.serial || !state.active) return;
+      // A catalog or pending leaf is not evidence that this epoch was displayed.
+      displayedSnapshot = c.snapshot_at;
+      if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') window.dispatchEvent(new CustomEvent('pulse:analytics-snapshot', {detail:{snapshot_at:displayedSnapshot}}));
     } catch (error) {
       if (own !== state.serial) return;
       pageRoot().innerHTML = heading(pageId === 'sectors' ? '板块与公司' : '市场温度', '历史快照，不提供当前实时买卖提示。') + `<div class="mp-empty">${esc(error.message)}<p><button type="button" data-mp-retry>重新读取</button></p></div>`;
@@ -390,7 +395,7 @@
     const breadthRows = datedRows(d.breadth_series, ['up_pct', 'ma20_pct', 'ad'],cutoff);
     const pcr = pcrRows(d, state.pcr);pcr.rows=datedRows(pcr.rows,['value'],cutoff);
     return [
-      {id: 'price', title: benchmark.name || '市场价格走势', tag: state.market === 'BTC' ? 'USD / 现货' : '指数点位', rows: priceRows, series: [{key: 'value', label: benchmark.name || '指数', color: GOLD}], unit: state.market === 'BTC' ? 'USD' : '点', reason: benchmark.reason || '未取得可验证的完整指数日线。', explanation: '价格线显示该市场指数或 BTC 现货的历史收盘。它不会自动更新为当前报价。'},
+      {id: 'price', title: benchmark.name || '市场价格走势', tag: state.market === 'BTC' ? 'USD / 现货' : '指数点位', rows: priceRows, series: [{key: 'value', label: benchmark.name || (state.market === 'BTC' ? '现货价格' : '指数'), color: GOLD}], unit: state.market === 'BTC' ? 'USD' : '点', reason: benchmark.reason || `未取得可验证的完整${state.market === 'BTC' ? '现货' : '指数'}日线。`, explanation: '价格线显示该市场指数或 BTC 现货的历史收盘。它不会自动更新为当前报价。'},
       {id: 'breadth', title: '上涨覆盖面', tag: '样本占比', rows: breadthRows, series: [{key: 'up_pct', label: '上涨占比', color: COLORS[0]}, ...(state.breadthMa ? [{key: 'ma20_pct', label: 'MA20 上方占比', color: COLORS[1]}] : [])], unit: '%', bounds: [0, 100], reference: 50, reason: d.breadth?.reason || '该市场没有已发布的涨跌家数统计。', explanation: '上涨占比 = 当日上涨家数 ÷ 有效样本家数。MA20 上方占比看多少只股票高于各自最近 20 根均价。它们说明参与面，不能单独给出买卖结论。'},
       {id: 'trin', title: '阿姆士 TRIN', tag: '量能分布', rows: validTrinRows(d), series: [{key: 'value', label: 'TRIN', color: COLORS[2]}], unit: '倍', reference: 1, reason: d.trin?.reason || '没有同时具备可靠涨跌家数与两组成交量，暂不绘图。', explanation: 'TRIN =（上涨家数 / 下跌家数）÷（上涨股成交量 / 下跌股成交量）。只有样本与成交量单位一致时，低于 1 才可解释为相对量能偏向上涨侧；高于 1 偏向下跌侧。分母为零或来源不可靠时不计算。'},
       {id: 'ad', title: '累计净上涨家数', tag: 'A / D', rows: breadthRows, series: [{key: 'ad', label: '累计 A/D', color: COLORS[3]}], unit: '家', reference: 0, reason: d.breadth?.reason || '缺少连续可验证的涨跌家数，无法展示累计线。', explanation: '每日净上涨家数 = 上涨家数 − 下跌家数，再按源快照累计。缺口不补零、不补涨跌家数；样本变化和统计区间会影响绝对值，不宜跨市场直接比较。'},
@@ -422,7 +427,7 @@
       `<section class="mp-curve-picker"><div class="mp-card-head"><h2>添加 / 移除曲线</h2><span>不同单位分图显示</span></div><div class="mp-curve-options">${specs.map(s => `<label class="${selectable(s) ? '' : 'mp-disabled'}"><input type="checkbox" data-mp-curve="${s.id}" ${state.curves.has(s.id) && selectable(s) ? 'checked' : ''} ${selectable(s) ? '' : 'disabled'}><span>${esc(s.title)}${hasPanelData(s) ? '' : '<small>暂不可用</small>'}</span></label>`).join('')}</div><label class="mp-overlay-check"><input type="checkbox" id="mpIndexOverlay" ${state.overlay ? 'checked' : ''}>在指标图叠加大盘走势（右轴，归一涨跌幅）</label><p class="mp-note">左轴读指标，右轴读金线涨跌幅；两条线相交没有买卖含义。每图可独立缩放、横拖；点图查看对应日期数值。</p></section>` +
       `<div class="mp-plot-grid">${supported.filter(s => state.curves.has(s.id)).map(s => environmentPanelHTML(s,d)).join('') || '<p class="mp-empty">还没有选择可用曲线。勾选上方曲线即可添加。</p>'}</div>` +
       (unsupported.length ? `<details class="mp-notes mp-gaps" open><summary>尚未绘制的指标 · 缺口说明</summary>${unsupported.map(s => `<p><strong>${esc(s.title)}</strong>：${esc(s.reason)}</p>`).join('')}</details>` : '') +
-      notesHTML([...(d.limitations || []), ...(d.notes || []), ...(d.breadth?.notes||[]), ...(d.pcr?.notes||[]), `来源：指数 ${d.index?.source || '未返回'}；广度 ${d.breadth?.source || '未返回'}；期权 ${d.pcr?.source || '未返回'}。`, '各曲线只按同一个交易日期对齐，不填补缺值，也不把之后的指数价格移动到之前。', '以上都是历史环境观察，未加入当前买卖信号和等级计算。']);
+      notesHTML([...(d.limitations || []), ...(d.notes || []), ...(d.breadth?.notes||[]), ...(d.pcr?.notes||[]), `来源：${priceLabel} ${d.index?.source || '未返回'}；广度 ${d.breadth?.source || '未返回'}；期权 ${d.pcr?.source || '未返回'}。`, '各曲线只按同一个交易日期对齐，不填补缺值，也不把之后的走势价格移动到之前。', '以上都是历史环境观察，未加入当前买卖信号和等级计算。']);
     for (const panel of supported.filter(s => state.curves.has(s.id) && hasPanelData(s))) mountPlot(panel, d);
   }
   function plotPalette() {
@@ -565,5 +570,5 @@
   });
   window.addEventListener('pulse:page', event => { if (PAGE_IDS[event.detail?.page]) open(event.detail.page, event.detail.market); else { state.active = false; state.serial++; } });
   window.addEventListener('pulse:theme',()=>{for(const plot of plots.values())scheduleDraw(plot);});
-  window.PulseMarketPages = {open};
+  window.PulseMarketPages = {open, getSnapshot:()=>displayedSnapshot};
 }());
