@@ -1,11 +1,11 @@
 'use strict';
-const BUILD='46f5d76eb578bec9';
+const BUILD='440ef73e444a8c54';
 const SCOPE=new URL(self.registration.scope);
 const PREFIX='market-pulse-mobile:'+SCOPE.pathname+':';
 const SHELL=PREFIX+'shell:'+BUILD, DATA=PREFIX+'data:v2';
 const SHELL_FILES=['./','./index.html','./style.css','./app.js','./offline.js','./recent-signals.js','./recent-signals.css','./mobile-shell.js','./mobile-shell.css','./market-pages.js','./market-pages.css','./theme.js','./theme.css','./upgrade.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 const SHELL_PATHS=new Set(SHELL_FILES.map(p=>new URL(p,SCOPE).pathname));
-const PINNED_DATA_PATHS=new Set(['data/catalog.json','data/research/catalog.json','data/archive/catalog.json','data/signals/recent.json','data/analytics/catalog.json'].map(p=>new URL(p,SCOPE).pathname));
+const PINNED_DATA_PATHS=new Set(['data/catalog.json','data/research/catalog.json','data/archive/catalog.json','data/signals/recent.json','data/analytics/catalog.json','data/global-directory.json'].map(p=>new URL(p,SCOPE).pathname));
 const ANALYTICS_FILES=new Set(['catalog','sectors-CN','sectors-HK','sectors-US','environment-CN','environment-HK','environment-US','environment-BTC']);
 const CODE='(?:BTC-USD|(?:sh|sz)[0-9]{6}|hk[0-9]{5}|us[A-Z][A-Z0-9.\\-]{0,12})';
 const CHART=new RegExp('^data/charts/('+CODE+')/day\\.json$');
@@ -29,6 +29,7 @@ function dataIdentity(value){
     if(query.length>1||(query.length===1&&(query[0][0]!=='v'||!query[0][1]||query[0][1].length>128)))return null;
     const version=query[0]?.[1]||null;
     if(path==='data/catalog.json'||path==='data/research/catalog.json')return {url,path,version,kind:path==='data/catalog.json'?'catalog':'research-catalog'};
+    if(path==='data/global-directory.json')return {url,path,version,kind:'global-directory'};
     if(path==='data/archive/catalog.json')return {url,path,version,kind:'archive-catalog'};
     if(path==='data/signals/recent.json')return {url,path,version,kind:'signal-index'};
     const analytics=/^data\/analytics\/([A-Za-z-]+)\.json$/.exec(path);
@@ -124,6 +125,7 @@ async function cachedData(request){
   return null;
 }
 function validPayload(payload,id,expected){
+  if(id.kind==='global-directory')return !id.version&&payload.schema_version===1&&typeof payload.retrieved_at==='string'&&['US','HK'].every(m=>{const d=payload.markets?.[m];if(!d||!Array.isArray(d.assets)||d.assets.length>30000)return false;try{const u=new URL(d.source_url);return u.protocol==='https:'&&!u.username&&!u.password&&u.hostname===(m==='US'?'www.nasdaqtrader.com':'www.hkex.com.hk')&&d.assets.every(a=>a&&typeof a.code==='string'&&typeof a.name==='string'&&['stock','etf','security','reit','leveraged_etp'].includes(a.kind));}catch(_){return false;}});
   if(id.kind==='catalog')return Array.isArray(payload.assets)&&typeof payload.snapshot_at==='string'&&(!id.version||payload.snapshot_at===id.version);
   if(id.kind==='archive-catalog')return payload.schema_version==='cn-archive-1'&&payload.archive_only===true&&Array.isArray(payload.assets)&&typeof payload.generated_at==='string'&&(!id.version||payload.generated_at===id.version);
   if(id.kind==='archive-chart')return payload.schema_version==='cn-archive-1'&&payload.archive_only===true&&payload.code===id.code&&payload.generated_at===id.version&&Array.isArray(payload.rows)&&JSON.stringify(payload.columns)===JSON.stringify(['date','open','high','low','close','volume']);

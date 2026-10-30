@@ -1,6 +1,35 @@
 'use strict';
 (function () {
   const MARKET_NAMES={CN:'A 股 / ETF',HK:'港股',US:'美股',BTC:'比特币'};
+  const PRIORITY_GROUPS={
+    gold:{name:'黄金',note:'黄金 ETF · 看基金价格，不是现货金价。',assets:[['sh518880','黄金 ETF · A股'],['sz159934','黄金 ETF 易方达 · A股'],['usGLD','GLD · 美股黄金'],['usIAU','IAU · 美股黄金']],preferred:'usGLD'},
+    oil:{name:'原油',note:'原油期货 ETF · 换月与费用会影响表现，不等于油价涨幅。',assets:[['usUSO','USO · WTI 原油'],['usBNO','BNO · 布伦特原油']],preferred:'usUSO'},
+    treasury:{name:'美债',note:'美债 ETF · 看债券基金价格，不是国债收益率曲线。',assets:[['usTLT','TLT · 20年以上'],['usIEF','IEF · 7–10年'],['usSHY','SHY · 1–3年'],['usTIP','TIP · 抗通胀债券']],preferred:'usTLT'}
+  };
+  function priorityAssets(assets,group){const spec=PRIORITY_GROUPS[group];if(!spec)return [];return spec.assets.flatMap(([code,label])=>{const asset=assets?.find(a=>a.code===code&&!a.archive_only);return asset?[{...asset,quick_label:label}]:[];});}
+  function priorityGroupFor(code){return Object.keys(PRIORITY_GROUPS).find(key=>PRIORITY_GROUPS[key].assets.some(([value])=>value===code))||null;}
+  function marketCoverage(assets,market){const rows=(assets||[]).filter(a=>a.market===market),stocks=rows.filter(a=>a.kind==='stock').length,etfs=rows.filter(a=>a.kind==='etf').length;return `${MARKET_NAMES[market]||market}已缓存 ${rows.length} 个重点标的${stocks||etfs?'（'+[stocks?stocks+' 家公司':'',etfs?etfs+' 只 ETF':''].filter(Boolean).join('、')+'）':''}，不是全市场目录。`;}
+  const DIRECTORY_KINDS={all:'全部证券',stock:'股票',etf:'ETF',security:'其他证券',reit:'REIT',leveraged_etp:'杠杆 / 反向 ETP'};
+  function globalDirectory(data){
+    const markets={},string=(value,max=300)=>typeof value==='string'&&value.length<=max&&!/[\x00-\x1f]/.test(value);
+    for(const market of ['US','HK']){
+      const raw=data?.markets?.[market];if(!raw||!Array.isArray(raw.assets)||raw.assets.length>50000)throw new Error('官方证券目录结构无效。');
+      let source;try{source=new URL(raw.source_url);}catch{throw new Error('官方证券目录来源链接无效。');}
+      if(source.protocol!=='https:'||source.username||source.password||!['www.nasdaqtrader.com','nasdaqtrader.com','www.hkex.com.hk','hkex.com.hk'].includes(source.hostname)||market==='US'&&!source.hostname.endsWith('nasdaqtrader.com')||market==='HK'&&!source.hostname.endsWith('hkex.com.hk'))throw new Error('官方证券目录来源不匹配。');
+      const seen=new Set(),assets=raw.assets.map(a=>{
+        if(!a||!string(a.code,80)||!a.code||seen.has(a.code)||!string(a.symbol,80)||!a.symbol||!string(a.name)||!a.name.trim())throw new Error('官方证券目录含无效或重复身份。');seen.add(a.code);
+        return {code:a.code,symbol:a.symbol,name:a.name,market,kind:Object.hasOwn(DIRECTORY_KINDS,a.kind)&&a.kind!=='all'?a.kind:'security',currency:string(a.currency,12)?a.currency:'',exchange:string(a.exchange,80)?a.exchange:''};
+      });
+      markets[market]={assets,source_url:source.href,source_date:string(raw.source_date,128)&&raw.source_date?raw.source_date:'源未注明日期',caveat:string(raw.caveat,4000)?raw.caveat:''};
+    }
+    return {markets};
+  }
+  function globalDirectoryPage(data,market,{query='',kind='all',page=0}={},coreAssets=[]){
+    const source=data?.markets?.[market],q=String(query).trim().toLowerCase(),filter=Object.hasOwn(DIRECTORY_KINDS,kind)?kind:'all';
+    const cached=new Map(coreAssets.filter(a=>a.market===market&&!a.archive_only).map(a=>[a.code,a]));
+    const matches=(source?.assets||[]).filter(a=>(filter==='all'||a.kind===filter)&&(!q||(a.name+' '+a.symbol+' '+a.code+' '+(cached.get(a.code)?.name||'')).toLowerCase().includes(q))),pages=Math.max(1,Math.ceil(matches.length/30)),current=Math.max(0,Math.min(pages-1,Number.isInteger(page)?page:0));
+    return {items:matches.slice(current*30,current*30+30).map(a=>({...a,cached:cached.has(a.code)})),total:matches.length,page:current,pages,source};
+  }
   const ZONES={CN:'Asia/Shanghai',HK:'Asia/Hong_Kong',US:'America/New_York',BTC:'UTC'};
   const finite=v=>typeof v==='number'&&Number.isFinite(v);
   const escape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -78,7 +107,7 @@
     const delta=finite(r.return_pct)&&finite(data.baseline?.return_pct)?r.return_pct-data.baseline.return_pct:null;
     return `<div class="result-heading"><h3>${escape(r.name||spec.code)} · ${escape(spec.code)}</h3><small>${escape(r.start||'')} → ${escape(r.end||'')}</small></div><div class="metric-grid"><div class="metric"><small>模型账户收益</small><strong>${pct(r.return_pct)}</strong><span>${escape(unit)} 独立账户<br>较默认 ${finite(delta)?number(delta,3)+' 个百分点':'—'}</span></div><div class="metric"><small>最大回撤</small><strong>${finite(r.max_drawdown_pct)?number(Math.abs(r.max_drawdown_pct))+'%':'—'}</strong><span>从历史高点下跌的最大幅度</span></div><div class="metric"><small>完整平仓胜率</small><strong>${pct(r.win_rate,false)}</strong><span>${number(r.closed_trades,0)} 笔已平 / ${open} 笔未平${(r.closed_trades||0)<30?'<br>样本不足':''}</span></div></div>${equityHTML(r)}<div class="section-head"><h3>每笔怎样进出</h3><small class="muted">${es.length} 次入场</small></div>${es.length?es.map((e,i)=>tradeHTML(e,i,unit)).join(''):'<p class="empty">本标的这一阶段没有入场交易，不能估计胜率。</p>'}<details class="source-notes"><summary>计算口径与限制</summary>${(r.notes||[]).map(n=>`<p>${escape(n)}</p>`).join('')}<p>这是已知历史的回顾性研究，非未知未来样本的验证；历史价格可能被数据源修订。</p></details>`;
   }
-  const exported={startupRoute,coreCatalog,archiveCatalog,archivePage,decodeArchiveChart,escape,number,priceDigits,pct,dateLabel,dateKey,signalSelection,maxChartOffset,shiftOffset,locationForIndex,locateDate,normalizeBrowse,readBrowse,saveBrowse,initialAsset,researchChoice,safePath,resourcePath,viewport,historicalSignals,protection,qualityHTML,researchState,latestLoader,resultIdentity,equityHTML,resultHTML,tradeHTML,episodesOf};
+  const exported={globalDirectory,globalDirectoryPage,priorityAssets,priorityGroupFor,marketCoverage,startupRoute,coreCatalog,archiveCatalog,archivePage,decodeArchiveChart,escape,number,priceDigits,pct,dateLabel,dateKey,signalSelection,maxChartOffset,shiftOffset,locationForIndex,locateDate,normalizeBrowse,readBrowse,saveBrowse,initialAsset,researchChoice,safePath,resourcePath,viewport,historicalSignals,protection,qualityHTML,researchState,latestLoader,resultIdentity,equityHTML,resultHTML,tradeHTML,episodesOf};
   if(typeof module!=='undefined'&&module.exports)module.exports=exported;
   if(typeof document==='undefined')return;
   let browserStorage=null;try{browserStorage=window.localStorage;}catch{}const savedBrowse=readBrowse(browserStorage);
@@ -125,7 +154,34 @@
     $('retryChart')?.addEventListener('click',()=>loadSelectedChart(true));$('reloadChartPage')?.addEventListener('click',()=>window.location.reload());
   }
   let archiveRequest=0;
+  let priorityGroup=null;
+  const directoryState={data:null,pending:null,error:'',page:0,market:null};
+  function renderGlobalDirectory(){
+    const entry=$('globalDirectory');if(!entry)return;const visible=['US','HK'].includes(state.market)&&state.pickerPool==='core';entry.classList.toggle('hidden',!visible);if(!visible)return;
+    if(directoryState.market!==state.market){directoryState.market=state.market;directoryState.page=0;$('globalDirectorySearch').value='';$('globalDirectoryKind').value='all';}
+    const source=directoryState.data?.markets?.[state.market];
+    $('globalDirectoryCount').textContent=source?`${number(source.assets.length,0)} 只证券名录`:'名称与代码 · 点击后加载';
+    if(!entry.open)return;
+    $('globalDirectoryPagination').classList.add('hidden');$('globalDirectorySearch').disabled=!source;$('globalDirectoryKind').disabled=!source;
+    if(!source){$('globalDirectoryRows').innerHTML='';$('globalDirectorySource').textContent='';$('globalDirectoryStatus').innerHTML=directoryState.error?`${escape(directoryState.error)} <button type="button" data-directory-retry>重新读取目录</button>`:'正在读取官方证券目录；不会批量请求行情…';return;}
+    const result=globalDirectoryPage(directoryState.data,state.market,{query:$('globalDirectorySearch').value,kind:$('globalDirectoryKind').value,page:directoryState.page},state.catalog?.assets);directoryState.page=result.page;
+    $('globalDirectoryStatus').textContent=`官方名录 ${number(source.assets.length,0)} 只证券；当前市场已缓存 ${number(state.catalog.assets.filter(a=>a.market===state.market).length,0)} 个重点标的。不同上市类别或币种柜台分别计数。`;
+    $('globalDirectoryRows').innerHTML=result.items.length?result.items.map(a=>`<div class="directory-row"><div><strong>${escape(a.name)}</strong><small>${escape(a.symbol)} · ${DIRECTORY_KINDS[a.kind]}${a.exchange?' · '+escape(a.exchange):''}${a.currency?' · '+escape(a.currency):''}</small></div>${a.cached?`<button type="button" data-directory-code="${escape(a.code)}">已缓存 · 看 K 线</button>`:'<span class="directory-not-cached">仅名录<br>未发布 K 线</span>'}</div>`).join(''):'<p class="note">没有匹配的证券名称或代码。可清空搜索或改为全部证券。</p>';
+    $('globalDirectoryPageLabel').textContent=`${result.page+1} / ${result.pages} 页 · 匹配 ${number(result.total,0)} 只`;$('globalDirectoryPrev').disabled=result.page===0;$('globalDirectoryNext').disabled=result.page+1>=result.pages;$('globalDirectoryPagination').classList.remove('hidden');
+    $('globalDirectorySource').innerHTML=`来源：<a href="${escape(source.source_url)}" target="_blank" rel="noopener noreferrer">${state.market==='US'?'Nasdaq Trader 官方证券名录':'香港交易所官方证券名录'} ↗</a> · 源日期 ${escape(source.source_date)}。${escape(source.caveat)}<br>这是当前证券名单，不是历史回测池；未发布 K 线的条目不提供行情、信号或回测。`;
+  }
+  function ensureGlobalDirectory(){
+    if(!['US','HK'].includes(state.market)||!state.catalog)return Promise.resolve();if(directoryState.data){renderGlobalDirectory();return Promise.resolve();}if(directoryState.pending)return directoryState.pending;
+    directoryState.error='';renderGlobalDirectory();directoryState.pending=readJSON('data/global-directory.json',undefined,globalDirectory).then(data=>{directoryState.data=data;}).catch(error=>{directoryState.error=error.message;}).finally(()=>{directoryState.pending=null;renderGlobalDirectory();});return directoryState.pending;
+  }
+  function renderPriorityAssets(){
+    const host=$('priorityAssets');if(!host)return;
+    const groups=Object.entries(PRIORITY_GROUPS),rows=priorityAssets(state.catalog?.assets,priorityGroup),spec=PRIORITY_GROUPS[priorityGroup];
+    host.innerHTML=`<div class="priority-tabs" aria-label="重点资产快捷入口">${groups.map(([key,group])=>`<button type="button" data-priority-group="${key}" aria-pressed="${priorityGroup===key}" aria-controls="priorityAssetOptions"${priorityAssets(state.catalog?.assets,key).length?'':' disabled'}><span>${group.name}</span><small>ETF</small></button>`).join('')}</div>${spec?`<div class="priority-options" id="priorityAssetOptions"><div class="priority-options-head"><small>${escape(spec.note)}</small><button type="button" data-priority-close aria-label="收起重点资产选项">收起</button></div><div class="priority-symbols" aria-label="${spec.name} ETF">${rows.map(a=>`<button type="button" data-priority-code="${escape(a.code)}" aria-pressed="${state.pool==='core'&&state.asset?.code===a.code}">${escape(a.quick_label)}</button>`).join('')}</div></div>`:'<div id="priorityAssetOptions" hidden></div>'}`;
+  }
   function renderAssets(){
+    renderPriorityAssets();
+    renderGlobalDirectory();
     $('archiveEntry').classList.toggle('hidden',state.market!=='CN');$('archiveBack').classList.toggle('hidden',state.pickerPool!=='archive');$('archivePagination').classList.add('hidden');
     if(state.pickerPool==='archive'){
       if(!state.archiveCatalog){$('assetList').innerHTML='<p class="empty">'+(state.archiveLoading?'正在读取扩展 A 股档案目录…':'档案目录未加载，可点上方入口重试。')+'</p>';$('assetScope').textContent='独立历史档案 · 价格口径未核验，不生成买卖点或回测。';return;}
@@ -137,7 +193,7 @@
     if(!Array.isArray(state.catalog?.assets)){$('assetList').innerHTML='<p class="empty">公开目录尚未加载，请联网后重试。</p>';return;}
     const query=$('assetSearch').value.trim().toLowerCase(),rows=state.catalog.assets.filter(a=>a.market===state.market&&(!query||(a.name+' '+a.code+' '+(a.group||'')+' '+(a.sector_name||'')).toLowerCase().includes(query)));
     $('assetList').innerHTML=rows.length?rows.map(a=>`<button type="button" role="listitem" data-code="${escape(a.code)}" data-pool="core" aria-pressed="${state.pool==='core'&&a.code===state.asset?.code}">${escape(a.name)}<small>${escape(a.code)} · ${escape(a.kind==='etf'?'ETF':a.sector_name||a.group||MARKET_NAMES[a.market])}</small></button>`).join(''):'<p class="empty">本次公开快照没有匹配标的。</p>';
-    $('assetScope').textContent=`当前市场 ${state.catalog.assets.filter(a=>a.market===state.market).length} 个公开行情标的；已完成回测的范围见回测页，扩展档案独立展示。`;
+    $('assetScope').textContent=marketCoverage(state.catalog.assets,state.market)+' 已完成回测的范围见回测页；扩展 A 股档案独立展示。';
   }
   async function openArchive(requested=null,fromRoute=false){
     if(state.market!=='CN'||!state.catalog)return;if(!fromRoute)state.startupRoute=null;const own=++archiveRequest;state.pickerPool='archive';state.archivePage=0;state.archiveLoading=true;$('assetSearch').value='';$('assetSearch').disabled=true;$('assetPicker').open=true;$('archiveOpen').disabled=true;renderAssets();
@@ -148,6 +204,7 @@
   function selectAsset(code,fromRoute=false){const a=state.catalog?.assets.find(a=>a.code===code);if(a)selectDisplayAsset(a,'core',fromRoute);}
   function selectArchiveAsset(code,fromRoute=false){const a=state.archiveCatalog?.assets.find(a=>a.code===code);if(a&&state.market==='CN')selectDisplayAsset(a,'archive',fromRoute);}
   function restoreArchiveRoute(code){
+    priorityGroup=null;
     archiveRequest++;chartLoader.invalidate();researchLoader.invalidate();drag=null;
     Object.assign(state,{asset:null,chart:null,signals:[],view:null,hits:[],selectedSignal:null,offset:0,hover:null,pool:'archive',pickerPool:'archive',market:'CN'});
     document.body.classList.add('archive-mode');
@@ -173,6 +230,7 @@
     if(route.pool==='archive')restoreArchiveRoute(route.code);else selectAsset(chosen.asset.code,true);
   }
   function selectDisplayAsset(a,pool,fromRoute=false){
+    priorityGroup=pool==='core'?priorityGroupFor(a.code):null;
     archiveRequest++;state.archiveLoading=false;$('archiveOpen').disabled=false;$('assetSearch').disabled=false;state.pool=pool;state.pickerPool=pool;state.asset=a;state.market=a.market;if(pool==='core')state.lastCoreCode=a.code;if(!fromRoute)state.startupRoute=null;
     if(!fromRoute)rememberSelectionRoute(a,pool);
     drag=null;state.chart=null;state.signals=[];state.view=null;state.hits=[];state.selectedSignal=null;state.offset=0;state.hover=null;state.signalLimit=12;researchLoader.invalidate();rememberBrowse();
@@ -207,6 +265,18 @@
   async function ensureResearch(){if(!state.asset){if(state.catalog)$('researchStatus').innerHTML='<p class="empty">请先选择可用标的。可返回行情页重试档案目录，或打开核心行情。</p>';return;}if(state.researchLoaded||state.researchLoading||state.pool==='archive'||!state.catalog)return;state.researchLoading=true;$('researchStatus').innerHTML='<p class="empty">正在读取冻结研究目录…</p>';try{const r=await readJSON(state.catalog.research_url||'data/research/catalog.json',state.catalog.snapshot_at,r=>{if(!Array.isArray(r.profiles)||!Array.isArray(r.phases)||!Array.isArray(r.symbols))throw new Error('研究目录不完整。');if(typeof state.catalog.research_snapshot_at!=='string'||r.data_asof!==state.catalog.research_snapshot_at)throw new Error('冻结研究目录版本已变化，请重新载入页面后查看。');return r;});state.research=r;state.researchLoaded=true;if(state.pool==='archive'||!state.asset)return;renderResearchControls();loadResearch();}catch(e){$('researchStatus').innerHTML=`<p class="result-error">${escape(e.message)}<button type="button" data-retry-catalog>重试</button></p>`;}finally{state.researchLoading=false;}}
   function loadResearch(){if(!state.research||!state.asset||state.pool==='archive'){researchLoader.invalidate();return;}const listed=(state.research.symbols||[]).some(s=>s.code===state.asset.code);renderResearchDescription(listed);$('researchResult').innerHTML='';if(!listed){researchLoader.invalidate();$('researchStatus').innerHTML='<p class="result-error">该标的未包含在此次公开研究池，未套用其他标的的回测成绩。</p>';return;}$('researchStatus').innerHTML='<p class="empty">正在读取这一个标的的冻结研究…</p>';researchLoader.load({profile:state.profile,code:state.asset.code,phase:state.phase,data_asof:state.research.data_asof,version:state.research.generated_at||state.catalog.snapshot_at,template:state.research.result_template||'data/research/{profile}/{code}/{phase}.json'});}
   $('marketTabs').addEventListener('click',e=>{const m=e.target.closest('[data-market]')?.dataset.market;if(!m||!state.catalog)return;const codes={CN:'sh510300',HK:'hk00700',US:'usQQQ',BTC:'BTC-USD'},a=state.catalog.assets.find(a=>a.code===codes[m])||state.catalog.assets.find(a=>a.market===m);if(!a)return;$('assetSearch').value='';if(m==='US'&&!state.phaseChosen&&state.phase==='validation')state.phase='recent';selectAsset(a.code);});
+  $('priorityAssets')?.addEventListener('click',e=>{
+    if(e.target.closest('[data-priority-close]')){priorityGroup=null;renderPriorityAssets();return;}
+    const code=e.target.closest('[data-priority-code]')?.dataset.priorityCode,group=e.target.closest('[data-priority-group]')?.dataset.priorityGroup;
+    if(code&&priorityGroupFor(code)&&state.catalog?.assets.some(a=>a.code===code)){const a=state.catalog.assets.find(a=>a.code===code);$('assetSearch').value='';if(a.market==='US'&&!state.phaseChosen&&state.phase==='validation')state.phase='recent';selectAsset(code);return;}
+    if(!Object.hasOwn(PRIORITY_GROUPS,group||''))return;const rows=priorityAssets(state.catalog?.assets,group);if(!rows.length)return;
+    const a=rows.find(a=>a.code===state.asset?.code)||rows.find(a=>a.code===PRIORITY_GROUPS[group].preferred)||rows[0];
+    $('assetSearch').value='';if(a.market==='US'&&!state.phaseChosen&&state.phase==='validation')state.phase='recent';selectAsset(a.code);
+  });
+  $('globalDirectory')?.addEventListener('toggle',()=>{if($('globalDirectory').open)ensureGlobalDirectory();});
+  $('globalDirectory')?.addEventListener('click',e=>{if(e.target.closest('[data-directory-retry]')){void ensureGlobalDirectory();return;}const code=e.target.closest('[data-directory-code]')?.dataset.directoryCode;if(!code)return;const asset=state.catalog?.assets.find(a=>a.code===code&&a.market===state.market);if(asset&&directoryState.data?.markets?.[state.market]?.assets.some(a=>a.code===code))selectAsset(code);});
+  ['globalDirectorySearch','globalDirectoryKind'].forEach(id=>$(id)?.addEventListener(id.endsWith('Search')?'input':'change',()=>{directoryState.page=0;renderGlobalDirectory();}));
+  [['globalDirectoryPrev',-1],['globalDirectoryNext',1]].forEach(([id,step])=>$(id)?.addEventListener('click',()=>{directoryState.page+=step;renderGlobalDirectory();if($('globalDirectoryRows'))$('globalDirectoryRows').scrollTop=0;}));
   $('assetList').addEventListener('click',e=>{const b=e.target.closest('[data-code]');if(!b)return;if(b.dataset.pool==='archive')selectArchiveAsset(b.dataset.code);else selectAsset(b.dataset.code);});$('assetSearch').addEventListener('input',()=>{state.archivePage=0;renderAssets();});$('archiveOpen').addEventListener('click',()=>openArchive());['archiveBack','archiveReturn','archivePolicyReturn'].forEach(id=>$(id).addEventListener('click',returnToCore));[['archivePrev',-1],['archiveNext',1]].forEach(([id,step])=>$(id).addEventListener('click',()=>{state.archivePage+=step;renderAssets();$('assetList').scrollTop=0;}));
   function clearLocation(){drag=null;state.hover=null;$('locateDateStatus').textContent='';}
   $('chartRange').addEventListener('change',()=>{state.range=$('chartRange').value==='all'?'all':Number($('chartRange').value);state.offset=0;clearLocation();rememberBrowse();drawChart();});

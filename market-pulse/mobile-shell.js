@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-  const BUILD='46f5d76eb578bec9';
+  const BUILD='440ef73e444a8c54';
   const PAGES={chart:'行情',signals:'近期 S 点',sectors:'板块与公司',temperature:'市场温度',research:'策略研究',help:'使用说明'};
   function route(value){const key=String(value||'').replace(/^#/,'');return Object.hasOwn(PAGES,key)?key:'chart';}
   function buildState(current,remote){if(!/^[a-f0-9]{16}$/.test(remote||''))return 'unknown';return current===remote?'current':'available';}
@@ -21,7 +21,7 @@
   const $=id=>document.getElementById(id),main=document.querySelector('main');
   if(!main)return;
   const chart=document.createElement('section');chart.id='mobileChartPage';chart.className='mobile-page';
-  const chartNodes=['.snapshot-notice','#browseStatus','#assetPicker','.chart-card','#archivePolicy','#signalsPanel'].map(s=>document.querySelector(s)).filter(Boolean);
+  const chartNodes=['.snapshot-notice','#browseStatus','#priorityAssets','#assetPicker','.chart-card','#archivePolicy','#signalsPanel'].map(s=>document.querySelector(s)).filter(Boolean);
   main.insertBefore(chart,chartNodes[0]||main.firstChild);chartNodes.forEach(node=>chart.append(node));
   const signals=document.createElement('section');signals.id='mobileSignalsPage';signals.className='mobile-page mobile-signal-page';signals.hidden=true;main.append(signals);
   window.PulseRecentSignals?.mount(signals);

@@ -1,7 +1,7 @@
 'use strict';
 (function(){
   const palettes={
-    light:{background:'#f3f6fb',panel:'#ffffff',text:'#18263b',muted:'#65758b',line:'#dce4ef',accent:'#246bfd',up:'#cf4453',down:'#16876c',ma:'#8862bd',volume:'#8094ad',crosshair:'#64748b',buy:'#246bfd',sell:'#b78120'},
+    light:{background:'#f6f7f9',panel:'#ffffff',text:'#172b46',muted:'#586a80',line:'#dce2ea',accent:'#205493',up:'#cf4453',down:'#16876c',ma:'#8862bd',volume:'#8094ad',crosshair:'#64748b',buy:'#205493',sell:'#b78120'},
     dark:{background:'#091524',panel:'#101f33',text:'#e9f1fb',muted:'#9aabc2',line:'#293e58',accent:'#63a5ff',up:'#f18b96',down:'#56c6a7',ma:'#c5a6eb',volume:'#8094ad',crosshair:'#b4c4d8',buy:'#63a5ff',sell:'#e8b85a'}
   };
   function normalize(value){return value==='dark'?'dark':'light';}
