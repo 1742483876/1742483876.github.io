@@ -70,7 +70,7 @@
   const side=document.querySelector('.instrument-side');
   if(!side)return;
   const button=document.createElement('button');
-  button.type='button';button.className='text-button radar-open';button.textContent='一键看近期 S 点';button.id='recentSignalsOpen';
+  button.type='button';button.className='text-button radar-open';button.textContent='近期 S 点';button.id='recentSignalsOpen';
   side.append(button);
   const dialog=document.createElement('dialog');
   dialog.id='recentSignalsDialog';dialog.className='radar-dialog';dialog.setAttribute('aria-labelledby','recentSignalsTitle');

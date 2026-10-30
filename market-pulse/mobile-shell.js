@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-  const BUILD='440ef73e444a8c54';
+  const BUILD='c0ec60dfa4111677';
   const PAGES={chart:'行情',signals:'近期 S 点',sectors:'板块与公司',temperature:'市场温度',research:'策略研究',help:'使用说明'};
   function route(value){const key=String(value||'').replace(/^#/,'');return Object.hasOwn(PAGES,key)?key:'chart';}
   function buildState(current,remote){if(!/^[a-f0-9]{16}$/.test(remote||''))return 'unknown';return current===remote?'current':'available';}
@@ -30,11 +30,12 @@
   const footer=document.querySelector('footer');if(footer){footer.hidden=true;main.append(footer);}
   const marketTabs=$('marketTabs');if(marketTabs)main.insertBefore(marketTabs,chart);
   const nav=document.createElement('nav');nav.id='mobileNavigation';nav.className='mobile-navigation';nav.setAttribute('aria-label','手机主要页面');
-  const labels={chart:['⌁','行情'],signals:['S','S 买卖点'],sectors:['▦','板块'],temperature:['∿','温度'],research:['↗','回测'],help:['?','说明']};
-  nav.innerHTML=Object.entries(labels).map(([key,[icon,label]])=>`<button type="button" data-mobile-page="${key}" aria-label="${PAGES[key]}"><span aria-hidden="true">${icon}</span><small>${label}</small></button>`).join('');document.body.append(nav);
+  const labels={chart:'行情',signals:'S 买卖点',sectors:'板块',temperature:'温度',research:'回测',help:'说明'};
+  const icons={chart:'<path d="M5 3v18M12 3v18M19 3v18"/><path d="M3 7h4v7H3zM10 5h4v6h-4zM17 12h4v6h-4z"/>',signals:'<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.3-5.7-3-5.7 3 1.1-6.3-4.6-4.5 6.4-.9Z"/>',sectors:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',temperature:'<path d="M3 13h4l3-8 4 14 3-8h4"/>',research:'<path d="M4 3v17h17M7 15l4-5 4 2 5-7"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9.2 9a2.8 2.8 0 1 1 4.5 2.3c-1.2.8-1.7 1.2-1.7 2.7M12 17h.01"/>'};
+  nav.innerHTML=Object.entries(labels).map(([key,label])=>`<button type="button" data-mobile-page="${key}" aria-label="${PAGES[key]}"><svg viewBox="0 0 24 24" aria-hidden="true">${icons[key]}</svg><small>${label}</small></button>`).join('');document.body.append(nav);
   const update=document.createElement('div');update.id='mobileUpdateBar';update.className='mobile-update-bar';update.innerHTML='<span id="mobileVersionStatus">手机版 · 独立页面导航</span><button type="button" id="checkMobileUpdate">检查更新</button><button type="button" id="applyMobileUpdate" hidden>更新并重新打开</button><button type="button" id="refreshMobileSnapshot" hidden>载入新数据</button>';
-  document.querySelector('.top').after(update);
-  let selected='chart';const scrolls=new Map();
+  update.hidden=true;document.querySelector('.top').after(update);
+  let selected='chart',updateNeedsAttention=false;const scrolls=new Map();
   function market(){return document.querySelector('#marketTabs [aria-pressed="true"]')?.dataset.market||'CN';}
   function show(value,{write=false,restore=false}={}){
     const next=route(value);scrolls.set(selected,window.scrollY);selected=next;
@@ -42,6 +43,7 @@
     for(const [key,node] of Object.entries(mapping))if(node)node.hidden=key!==next;
     if(marketTabs)marketTabs.hidden=['signals','help'].includes(next);
     if(footer)footer.hidden=next!=='help';
+    update.hidden=next!=='help'&&!updateNeedsAttention;
     nav.querySelectorAll('[data-mobile-page]').forEach(b=>{const active=b.dataset.mobilePage===next;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});
     if(next==='signals')window.PulseRecentSignals?.activate(market());
     window.dispatchEvent(new CustomEvent('pulse:page',{detail:{page:next,market:market()}}));
@@ -64,6 +66,7 @@
     const message=[updates.length?updates.map(n=>n.label).join('、')+'有新快照，可重新载入查看':'',fallbacks.length?fallbacks.map(n=>n.label).join('、')+'未能在线确认，沿用已存快照':''].filter(Boolean).join('；');
     $('mobileVersionStatus').textContent=baseStatus+(message?' · '+message:'');
     $('refreshMobileSnapshot').hidden=!notices.length;$('refreshMobileSnapshot').textContent=updates.length?'载入新数据':'重试更新';
+    updateNeedsAttention=!$('applyMobileUpdate').hidden||notices.length>0;update.hidden=selected!=='help'&&!updateNeedsAttention;
   }
   const status=text=>{baseStatus=text;renderStatus();};
   async function reconcileCoreNotice(){
