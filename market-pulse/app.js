@@ -60,7 +60,7 @@
     const stamp=value=>typeof value==='string'&&Number.isFinite(Date.parse(value));
     if(data?.schema_version!=='public-snapshot-1'||!['snapshot_at','generated_at','research_snapshot_at'].every(key=>stamp(data[key]))||!Array.isArray(data.assets)||!data.assets.length)throw new Error('公开行情目录结构或快照时间无效，请重新读取。');
     const seen=new Set(),currencies={CN:'CNY',HK:'HKD',US:'USD',BTC:'USD'};
-    for(const a of data.assets){if(!a||typeof a.code!=='string'||!/^[A-Za-z0-9_.-]{1,64}$/.test(a.code)||seen.has(a.code)||!['CN','HK','US','BTC'].includes(a.market)||a.currency!==currencies[a.market]||typeof a.name!=='string'||!a.name.trim()||a.archive_only===true||a.chart_url!==`data/charts/${a.code}/day.json`)throw new Error('公开行情目录标的身份或路径无效，请重新读取。');seen.add(a.code);}
+    for(const a of data.assets){if(!a||typeof a.code!=='string'||!/^[A-Za-z0-9_.-]{1,64}$/.test(a.code)||seen.has(a.code)||!['CN','HK','US','BTC'].includes(a.market)||a.currency!==currencies[a.market]||typeof a.name!=='string'||!a.name.trim()||a.archive_only===true||a.chart_url!==`data/charts/${a.code}/day.json`||(a.chart_snapshot_at!==undefined&&(!stamp(a.chart_snapshot_at)||Date.parse(a.chart_snapshot_at)>Date.parse(data.snapshot_at))))throw new Error('公开行情目录标的身份或路径无效，请重新读取。');seen.add(a.code);}
     return data;
   }
   function validDateKey(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T12:00:00Z'))&&new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value;}
@@ -147,7 +147,7 @@
   function loadSelectedChart(reload=false){
     const a=state.asset;if(!a)return;const archive=state.pool==='archive';
     $('chartStatus').textContent='读取已发布历史…';$('chartEmpty').textContent='正在读取历史 K 线…';$('chartEmpty').classList.remove('hidden');
-    chartLoader.load({pool:state.pool,asset:a,code:a.code,market:a.market,currency:a.currency,path:a.chart_url||`data/charts/${a.code}/day.json`,version:archive?state.archiveCatalog.generated_at:state.catalog.snapshot_at,reload});
+    chartLoader.load({pool:state.pool,asset:a,code:a.code,market:a.market,currency:a.currency,path:a.chart_url||`data/charts/${a.code}/day.json`,version:archive?state.archiveCatalog.generated_at:(a.chart_snapshot_at||state.catalog.snapshot_at),reload});
   }
   function chartFailure(error){
     $('chartEmpty').textContent=error.message;$('chartEmpty').innerHTML=`${escape(error.message)}<p><button type="button" id="retryChart">重新读取 K 线</button> <button type="button" id="reloadChartPage">载入新版页面</button></p>`;$('chartEmpty').classList.remove('hidden');
@@ -179,7 +179,7 @@
     const host=$('priorityAssets');if(!host)return;
     const groups=Object.entries(PRIORITY_GROUPS),rows=priorityAssets(state.catalog?.assets,priorityGroup),spec=PRIORITY_GROUPS[priorityGroup];
     const assetSpec=state.pool==='core'?PRIORITY_GROUPS[priorityGroupFor(state.asset?.code)]:null;
-    if($('assetClassNote')){$('assetClassNote').textContent=assetSpec?.note||'';$('assetClassNote').classList.toggle('hidden',!assetSpec);}
+    if($('assetClassNote')){const productNote=[assetSpec?.note,state.asset?.risk].filter(Boolean).join(' ');$('assetClassNote').textContent=productNote;$('assetClassNote').classList.toggle('hidden',!productNote);}
     host.innerHTML=`<div class="priority-tabs" aria-label="重点资产快捷入口">${groups.map(([key,group])=>`<button type="button" data-priority-group="${key}" aria-pressed="${priorityGroup===key}" aria-controls="priorityAssetOptions"${priorityAssets(state.catalog?.assets,key).length?'':' disabled'}><span>${group.name}</span><small>ETF</small></button>`).join('')}</div>${spec?`<div class="priority-options" id="priorityAssetOptions"><div class="priority-symbols" aria-label="${spec.name} ETF">${rows.map(a=>`<button type="button" data-priority-code="${escape(a.code)}" aria-pressed="${state.pool==='core'&&state.asset?.code===a.code}">${escape(a.quick_label)}</button>`).join('')}</div><button type="button" class="priority-close" data-priority-close aria-label="收起重点资产选项">×</button></div>`:'<div id="priorityAssetOptions" hidden></div>'}`;
   }
   function renderAssets(){

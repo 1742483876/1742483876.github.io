@@ -3,6 +3,10 @@
   const finite = n => typeof n === 'number' && Number.isFinite(n);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmt = n => finite(n) ? n.toLocaleString('zh-CN', {maximumFractionDigits:4}) : '—';
+  const FILTER_KEY='pulse:mobile-recent-signals:filters:v1';
+  function normalizeFilters(value){const v=value&&typeof value==='object'?value:{};return {market:['all','CN','US'].includes(v.market)?v.market:'all',side:['all','buy','sell'].includes(v.side)?v.side:'all',days:[5,10,30].includes(Number(v.days))?Number(v.days):10};}
+  function readFilters(storage){try{return normalizeFilters(JSON.parse(storage?.getItem(FILTER_KEY)||'null'));}catch(_){return normalizeFilters(null);}}
+  function saveFilters(storage,value){try{storage?.setItem(FILTER_KEY,JSON.stringify(normalizeFilters(value)));return !!storage;}catch(_){return false;}}
   const zones={CN:'Asia/Shanghai',US:'America/New_York'};
   const validDate=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d+'T00:00:00Z'))&&new Date(d+'T00:00:00Z').toISOString().slice(0,10)===d;
   function snapshotTime(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&/(Z|[+-]\d{2}:\d{2})$/.test(value)&&validDate(value.slice(0,10))&&Number.isFinite(Date.parse(value))?Date.parse(value)/1000:null;}
@@ -46,7 +50,7 @@
   }
   function bounded(promise,ms,message){let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(message)),ms);})]).finally(()=>clearTimeout(timer));}
   function selectSignals(data, {market='all', side='all', days=10} = {}) {
-    const size = [10,30].includes(Number(days)) ? Number(days) : 10;
+    const size = [5,10,30].includes(Number(days)) ? Number(days) : 10;
     return (Array.isArray(data?.signals) ? data.signals : [])
       .filter(s => validSignal(s) && s.bar_age < size && (market==='all' || s.market===market) && (side==='all' || s.side===side))
       .sort((a,b) => b.confirmed_at-a.confirmed_at || a.code.localeCompare(b.code));
@@ -63,19 +67,22 @@
   function rowHTML(s) {
     return `<a class="radar-row ${s.side}" href="${esc(signalLink(s))}"><div><strong>${esc(s.name)} <span>${esc(s.code)}</span></strong><b>${s.side==='buy'?'S · 历史买点':'S · 历史卖点'}</b></div><p>${esc(s.signal_date)} · ${s.bar_age===0?'末根已完成日线':`距末根 ${s.bar_age} 根`} · 参考 ${fmt(s.price)} ${esc(s.currency)}</p><small>${s.side==='sell'?'退出紧迫度评级；只适用于当时已有持仓。':referencePlan(s)||'查看当时完整依据与保护计划。'}</small><small>本股行情截至 ${esc(s.source_asof)} · 查看 K 线与详情 →</small></a>`;
   }
-  const api={validSignal,selectSignals,signalLink,referencePlan,rowHTML,validateFeed,marketDate,snapshotTime,bounded};
+  const api={FILTER_KEY,normalizeFilters,readFilters,saveFilters,validSignal,selectSignals,signalLink,referencePlan,rowHTML,validateFeed,marketDate,snapshotTime,bounded};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof document==='undefined')return;
   const $=id=>document.getElementById(id);
   const side=document.querySelector('.instrument-side');
   if(!side)return;
   const button=document.createElement('button');
-  button.type='button';button.className='text-button radar-open';button.textContent='近期 S 点';button.id='recentSignalsOpen';
+  button.type='button';button.className='text-button radar-open';button.textContent='近期 S 点';button.title='近期买卖点与筛选设置';button.id='recentSignalsOpen';
   side.append(button);
   const dialog=document.createElement('dialog');
   dialog.id='recentSignalsDialog';dialog.className='radar-dialog';dialog.setAttribute('aria-labelledby','recentSignalsTitle');
-  dialog.innerHTML=`<div class="dialog-head"><div><span class="eyebrow">A 股 · 美股 / 历史信号</span><h2 id="recentSignalsTitle">近期 S 点</h2></div><button type="button" class="close-button" id="recentSignalsClose" aria-label="关闭近期 S 点">×</button></div><p class="note">买点与卖点一起查。S 买点评估规则条件，S 卖点评估退出紧迫度，均不代表盈利概率。</p><div class="radar-controls"><label>市场<select id="radarMarket" aria-label="S点市场"><option value="all">A 股 + 美股</option><option value="CN">A 股 / ETF</option><option value="US">美股 / ETF</option></select></label><label>方向<select id="radarSide" aria-label="S点方向"><option value="all">买点 + 卖点</option><option value="buy">只看买点</option><option value="sell">只看卖点</option></select></label><label>范围<select id="radarDays" aria-label="S点近期范围"><option value="10">近 10 根日 K</option><option value="30">近 30 根日 K</option></select></label></div><p class="note" id="radarCoverage"></p><div id="radarStatus" role="status"></div><div id="radarList"></div><p class="note">“近期”以各标的最后一根已完成日 K 为基准，包含当根，按交易日根数计算。这里只查公开核心行情目录，扩展历史档案不参与评级；旧快照信号不等于现在仍可以买卖。</p>`;
+  dialog.innerHTML=`<div class="dialog-head"><div><span class="eyebrow">A 股 · 美股 / 历史信号</span><h2 id="recentSignalsTitle">近期 S 买卖点</h2></div><button type="button" class="close-button" id="recentSignalsClose" aria-label="关闭近期 S 点">×</button></div><p class="note">买点与卖点一起查。S 买点评估规则条件，S 卖点评估退出紧迫度，均不代表盈利概率。</p><section class="radar-settings" aria-labelledby="radarSettingsTitle"><div class="radar-settings-head"><h3 id="radarSettingsTitle">筛选设置</h3><button type="button" id="radarReset" class="text-button">恢复默认</button></div><div class="radar-controls"><label>市场<select id="radarMarket" aria-label="S点市场"><option value="all">A 股 + 美股</option><option value="CN">A 股 / ETF</option><option value="US">美股 / ETF</option></select></label><label>方向<select id="radarSide" aria-label="S点方向"><option value="all">买点 + 卖点</option><option value="buy">只看买点</option><option value="sell">只看卖点</option></select></label><label>范围<select id="radarDays" aria-label="S点近期范围"><option value="5">近 5 根日 K</option><option value="10" selected>近 10 根日 K</option><option value="30">近 30 根日 K</option></select></label></div><p class="note" id="radarSavedFilters">筛选会保存在此浏览器。</p><p class="radar-snapshot-scope">周期：日线 · 有效性：历史快照，未核验当前是否仍成立。分钟级与当前有效性检查请使用运行中的电脑端。</p></section><p class="note" id="radarCoverage"></p><div id="radarStatus" role="status"></div><div id="radarList"></div><p class="note">“近期”以各标的最后一根已完成日 K 为基准，包含当根，按交易日根数计算。这里只查公开核心行情目录，扩展历史档案不参与评级；旧快照信号不等于现在仍可以买卖。</p>`;
   document.body.append(dialog);
+  let storage=null,savedRaw=null;try{storage=window.localStorage;savedRaw=storage?.getItem(FILTER_KEY)||null;}catch(_){}
+  const savedFilters=readFilters(storage);let preserveMarket=!!savedRaw;
+  $('radarMarket').value=savedFilters.market;$('radarSide').value=savedFilters.side;$('radarDays').value=String(savedFilters.days);
   let data=null,pending=null,pageContainer=null;
   function render() {
     if(!data)return;
@@ -109,7 +116,7 @@
     pending=task;try{return await task;}finally{if(pending===task)pending=null;}
   }
   function activate(market){
-    if(market)$('radarMarket').value=['CN','US'].includes(market)?market:'all';
+    if(market&&!preserveMarket)$('radarMarket').value=['CN','US'].includes(market)?market:'all';
     void load();
   }
   function open(){
@@ -126,5 +133,7 @@
   }};
   button.addEventListener('click',open);
   $('recentSignalsClose').addEventListener('click',()=>{if(pageContainer)window.dispatchEvent(new CustomEvent('pulse:navigate',{detail:{page:'chart'}}));else dialog.close();});
-  ['radarMarket','radarSide','radarDays'].forEach(id=>$(id).addEventListener('change',render));
+  function rememberFilters(){preserveMarket=true;const saved=saveFilters(storage,{market:$('radarMarket').value,side:$('radarSide').value,days:Number($('radarDays').value)});$('radarSavedFilters').textContent=saved?'已保存筛选；下次打开会继续使用。':'当前筛选已应用；浏览器存储不可用，关闭后可能无法保留。';render();}
+  ['radarMarket','radarSide','radarDays'].forEach(id=>$(id).addEventListener('change',rememberFilters));
+  $('radarReset').addEventListener('click',()=>{$('radarMarket').value='all';$('radarSide').value='all';$('radarDays').value='10';rememberFilters();});
 }());
