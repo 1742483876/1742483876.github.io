@@ -10,7 +10,7 @@
       const scope = new URL('./', base), url = new URL(path, scope);
       if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname + 'data/') || url.hash || url.username || url.password) return null;
       const relative = url.pathname.slice(scope.pathname.length);
-      if (!/^data\/(?:catalog\.json|research\/catalog\.json|archive\/catalog\.json|signals\/recent\.json|analytics\/(?:catalog|sectors-(?:CN|HK|US)|environment-(?:CN|HK|US|BTC))\.json|archive\/charts\/(?:sh|sz|bj)[0-9]{6}\.json|charts\/[A-Za-z0-9_.-]+\/day\.json|research\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_-]+\.json)$/.test(relative)) return null;
+      if (!/^data\/(?:catalog\.json|win-evidence\.json|win-directory\/\d{8}-v[1-9]\d{0,3}\/(?:manifest|[0-5]\d|6[0-3])\.json|research\/catalog\.json|archive\/catalog\.json|signals\/recent\.json|analytics\/(?:catalog|sectors-(?:CN|HK|US)|environment-(?:CN|HK|US|BTC))\.json|archive\/charts\/(?:sh|sz|bj)[0-9]{6}\.json|charts\/[A-Za-z0-9_.-]+\/day\.json|research\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_-]+\.json)$/.test(relative)) return null;
       if ([...url.searchParams.keys()].some(k => k !== 'v') || url.searchParams.getAll('v').length > 1) return null;
       return url.href;
     } catch (_) { return null; }

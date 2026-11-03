@@ -68,7 +68,7 @@
   function rowHTML(s,now=Date.now()/1000) {
     const confirmed=marketDate(s.confirmed_at,s.market),today=marketDate(now,s.market);
     const followUp=s.bar_age===0?'快照尚无信号后的已收盘日线。':`快照含信号后 ${s.bar_age} 根日线，点开查看收盘涨跌。`;
-    return `<a class="radar-row ${s.side}" href="${esc(signalLink(s))}"><div><strong>${esc(s.name)} <span>${esc(s.code)}</span></strong><b>${s.side==='buy'?'S · 历史买点':'S · 历史卖点'}</b></div><p>${confirmed===today&&s.confirmed_at<=now?'今日确认':'历史确认'} ${esc(confirmed)} · 当时参考价 ${fmt(s.price)} ${esc(s.currency)}${s.signal_date!==confirmed?` · 信号 K 线 ${esc(s.signal_date)}`:''}</p><small>${s.side==='sell'?'退出紧迫度评级，仅适用于当时已有持仓。':referencePlan(s)||'查看当时的信号依据与保护计划。'}</small><small>本股行情截至 ${esc(s.source_asof)} · ${esc(s.source||'公开历史快照')}</small><small>${followUp} 查看 K 线 →</small></a>`;
+    return `<a class="radar-row ${s.side}" href="${esc(signalLink(s))}"><div><strong>${esc(s.name)} <span>${esc(s.code)}</span></strong><b>${s.side==='buy'?'S · 历史买点':'S · 历史卖点'}</b></div><p>${confirmed===today&&s.confirmed_at<=now?'今日确认':'历史确认'} ${esc(confirmed)} · 当时参考价 ${fmt(s.price)} ${esc(s.currency)}${s.signal_date!==confirmed?` · 信号 K 线 ${esc(s.signal_date)}`:''}</p><small>${s.side==='sell'?'退出紧迫度评级，仅适用于当时已有持仓。':referencePlan(s)||'查看当时的信号依据与保护计划。'}</small><small>本股行情截至 ${esc(s.source_asof)} · ${esc(s.source||'公开历史快照')}</small><small>${followUp} 查看 K 线与本股验证 →</small></a>`;
   }
   const api={FILTER_KEY,normalizeFilters,readFilters,saveFilters,validSignal,selectSignals,signalLink,referencePlan,rowHTML,validateFeed,marketDate,dateWindow,snapshotTime,bounded};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;

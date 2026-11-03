@@ -82,6 +82,72 @@
   }
   function protection(signal){const p=signal?.plan;const ref=p?.reference_price??signal?.price;if(!p||!finite(ref)||ref<=0||!finite(p.stop_pct)||!finite(p.take_pct)||p.stop_pct<=0||p.stop_pct>=100||p.take_pct<=0)return null;return {reference:ref,stop:ref*(1-p.stop_pct/100),take:ref*(1+p.take_pct/100),hold:p.hold,stop_pct:p.stop_pct,take_pct:p.take_pct};}
   function qualityHTML(quality,side){const q=quality||{},parts=Array.isArray(q.parts)?q.parts:[],meaning=q.meaning||(side==='sell'?'卖出等级表示退出紧迫程度，不是后续下跌或获利概率。':'买入等级表示规则条件，不是盈利概率。');return `<p class="note">等级含义：${escape(meaning)}</p>`+parts.map(p=>`<div class="check-row"><strong class="${p.passed===true?'check-pass':p.passed===false?'check-fail':'check-neutral'}">${p.passed===true?'✓':p.passed===false?'·':'—'} ${escape(p.name||p.label||p.key||'条件')}</strong>${p.reason?`<span>${escape(p.reason)}</span>`:''}</div>`).join('');}
+  function profitEvidence(data, asset, catalog){
+    if(data?.schema_version!=='win-evidence-1'||data.catalog_snapshot_at!==catalog.snapshot_at||data.data_asof!==catalog.research_snapshot_at)
+      throw new Error('行情或验证版本不一致，请重新载入新版。');
+    const row=data.by_code?.[asset.code];
+    if(!['frozen','supplemental'].includes(row?.source_kind)||(row.source_kind==='frozen'&&row.data_asof!==data.data_asof))
+      throw new Error('本标的验证资料不完整。');
+    validateEvidenceRow(row,asset.code);
+    const day=data.latest_day_by_code?.[asset.code];
+    const latest=day?.status==='ok'&&day.code===asset.code&&day.chart_snapshot_at===(asset.chart_snapshot_at||catalog.snapshot_at)
+      &&day.data_asof===asset.data_asof&&finite(day.score)&&day.score>=0&&day.score<=100
+      &&['buy','wait','sell'].includes(day.decision)?day:null;
+    return {row,latest};
+  }
+  function validateEvidenceRow(row,code){
+    const measured=['estimated','insufficient'].includes(row?.status);
+    if(row?.code!==code||row.grade!=='S'||row.profile!=='baseline'||row.phase!=='validation'||row.period!=='day'
+        ||!['estimated','insufficient','no_closed','excluded','not_included','unavailable'].includes(row.status))
+      throw new Error('本标的验证资料不完整。');
+    if(measured){
+      const ci=row.interval95_pct;
+      if(!Number.isSafeInteger(row.closed)||row.closed<1||!Number.isSafeInteger(row.wins)||row.wins<0||row.wins>row.closed
+          ||!finite(row.win_rate_pct)||Math.abs(row.win_rate_pct-100*row.wins/row.closed)>.05||row.minimum_sample!==30
+          ||(row.closed>=row.minimum_sample)!==(row.status==='estimated')
+          ||!Array.isArray(ci)||ci.length!==2||!ci.every(n=>finite(n)&&n>=0&&n<=100)||ci[1]<ci[0]
+          ||typeof row.start!=='string'||typeof row.end!=='string'||row.start>row.end)
+        throw new Error('盈利笔数或验证区间未通过核验。');
+    }else if(row.status==='no_closed'&&(row.closed!==0||row.win_rate_pct!==null)){
+      throw new Error('零样本验证结果不完整。');
+    }
+    return row;
+  }
+  function evidenceBucket(code){
+    let hash=2166136261;
+    for(const char of code)hash=Math.imul(hash^char.charCodeAt(0),16777619);
+    return String((hash>>>0)%64).padStart(2,'0');
+  }
+  function directoryProof(data,code,version,bucket,cutoff){
+    if(data?.schema_version!=='win-directory-1'||data.version!==version||data.bucket!==bucket||data.data_asof!==cutoff
+        ||!data.by_code||typeof data.by_code!=='object'||Array.isArray(data.by_code))
+      throw new Error('这份扩展验证与所选版本不符。');
+    if(!Object.hasOwn(data.by_code,code))return null;
+    const row=data.by_code[code];
+    if(row.source_kind!=='directory'||row.data_asof!==cutoff)throw new Error('本票验证来源与截止日期未通过核验。');
+    return validateEvidenceRow(row,code);
+  }
+  function evidenceHTML(row){
+    const statusText={excluded:'该标的未通过本阶段数据核验',not_included:'该标的未纳入验证',unavailable:'验证结果暂不可用',no_closed:'没有完整平仓记录'};
+    if(row.status==='no_closed')return `<strong>本股 S 买点 · 无可用盈利估计</strong><span>${escape(row.start||'')} 至 ${escape(row.end||'')} 没有完整平仓记录，无法计算盈利比例。</span>`;
+    if(statusText[row.status])return `<strong>本股 S 买点 · 无可用盈利估计</strong><span>${row.source_kind==='directory'?'':statusText[row.status]+'。'}${escape(row.reason||statusText[row.status])}</span>`;
+    const tiny=row.status==='insufficient';
+    const provenance=row.source_kind==='directory'?'独立日线验证':row.source_kind==='supplemental'?'按同一规则补验':'冻结验证记录';
+    const band=row.interval95_pct.map(v=>number(v,1)+'%').join(' 至 ');
+    return `<strong>本股 S 买点 · 历史盈利频率 ${number(row.win_rate_pct,1)}%</strong><span>验证期平仓 ${row.closed} 笔，其中 ${row.wins} 笔扣费后盈利。${tiny?'不足 '+row.minimum_sample+' 笔，暂不能估计下一笔。':''}</span><details><summary>${provenance} · ${escape(row.start)} 至 ${escape(row.end)}</summary><p>按默认日线 S 买入及退出规则模拟，计入手续费和滑点。完整平仓按一笔计。</p><p>95% Wilson 区间为 ${band}。这是事后统计；交易可能相关，未来单笔盈利概率仍未知。</p></details>`;
+  }
+  function scoreHTML(asset,chart,latest){
+    if(!chart||chart.code!==asset?.code||chart.archive_only)return '';
+    const last=chart.bars.at(-1);
+    if(!last)return '';
+    const event=historicalSignals(chart).find(s=>s.side==='buy'&&s.quality?.grade==='S');
+    const day=dateKey(last.time,chart.market);
+    const exact=latest?.code===chart.code&&latest.data_asof===day&&latest.chart_snapshot_at===chart.snapshot_at;
+    const action={buy:'触发买入条件',wait:'等待',sell:'转弱'};
+    const latestText=exact?`${latest.score} 分 · ${action[latest.decision]}${latest.decision==='buy'&&['S','A','B','C'].includes(latest.grade)?'（'+latest.grade+' 级）':''}`:'评分暂不可用';
+    const old=event?`${dateKey(event.time,chart.market)} · S 级${finite(event.quality.score)?' '+event.quality.score+' 分':''}`:'所载日线无 S 买点';
+    return `<div><small>${escape(day)} · 买入条件评分</small><b>${escape(latestText)}</b></div><div><small>最近一次历史 S 买点</small><b>${escape(old)}</b></div><details class="grade-note"><summary>怎样才有 S 买点？</summary><p>买入评分至少 90 分，趋势、动量、成交量、价格确认及风险条件同时达标，并出现新的触发，才会标为 S 买点。等待或转弱时，旧买点保留原日期。</p></details>`;
+  }
   function researchState(profile,phase){
     if(profile.id==='baseline')return '默认规则 · 历史基准';
     const s=profile[phase];
@@ -115,7 +181,7 @@
     const delta=finite(r.return_pct)&&finite(data.baseline?.return_pct)?r.return_pct-data.baseline.return_pct:null;
     return `<div class="result-heading"><h3>${escape(r.name||spec.code)} · ${escape(spec.code)}</h3><small>${escape(r.start||'')} → ${escape(r.end||'')}</small></div><div class="metric-grid"><div class="metric"><small>模型账户收益</small><strong>${pct(r.return_pct)}</strong><span>${escape(unit)} 独立账户<br>较默认 ${finite(delta)?number(delta,3)+' 个百分点':'—'}</span></div><div class="metric"><small>最大回撤</small><strong>${finite(r.max_drawdown_pct)?number(Math.abs(r.max_drawdown_pct))+'%':'—'}</strong><span>从历史高点下跌的最大幅度</span></div><div class="metric"><small>完整平仓胜率</small><strong>${pct(r.win_rate,false)}</strong><span>${number(r.closed_trades,0)} 笔已平 / ${open} 笔未平${(r.closed_trades||0)<30?'<br>样本不足':''}</span></div></div>${equityHTML(r)}<div class="section-head"><h3>每笔怎样进出</h3><small class="muted">${es.length} 次入场</small></div>${es.length?es.map((e,i)=>tradeHTML(e,i,unit)).join(''):'<p class="empty">本标的这一阶段没有入场交易，不能估计胜率。</p>'}<details class="source-notes"><summary>计算口径与限制</summary>${(r.notes||[]).map(n=>`<p>${escape(n)}</p>`).join('')}<p>这是已知历史的回顾性研究，非未知未来样本的验证；历史价格可能被数据源修订。</p></details>`;
   }
-  const exported={zoomRange,globalDirectory,globalDirectoryPage,priorityAssets,priorityGroupFor,marketCoverage,startupRoute,coreCatalog,archiveCatalog,archivePage,decodeArchiveChart,escape,number,priceDigits,pct,dateLabel,dateKey,signalSelection,maxChartOffset,shiftOffset,locationForIndex,locateDate,normalizeBrowse,readBrowse,saveBrowse,initialAsset,researchChoice,safePath,resourcePath,viewport,historicalSignals,signalFollowUp,protection,qualityHTML,researchState,latestLoader,resultIdentity,equityHTML,resultHTML,tradeHTML,episodesOf};
+  const exported={evidenceBucket,directoryProof,profitEvidence,evidenceHTML,scoreHTML,zoomRange,globalDirectory,globalDirectoryPage,priorityAssets,priorityGroupFor,marketCoverage,startupRoute,coreCatalog,archiveCatalog,archivePage,decodeArchiveChart,escape,number,priceDigits,pct,dateLabel,dateKey,signalSelection,maxChartOffset,shiftOffset,locationForIndex,locateDate,normalizeBrowse,readBrowse,saveBrowse,initialAsset,researchChoice,safePath,resourcePath,viewport,historicalSignals,signalFollowUp,protection,qualityHTML,researchState,latestLoader,resultIdentity,equityHTML,resultHTML,tradeHTML,episodesOf};
   if(typeof module!=='undefined'&&module.exports)module.exports=exported;
   if(typeof document==='undefined')return;
   let browserStorage=null;try{browserStorage=window.localStorage;}catch{}const savedBrowse=readBrowse(browserStorage);
@@ -128,29 +194,113 @@
   function rememberBrowse(){if(state.pool==='archive')return;saveBrowse(browserStorage,{symbol:state.asset?.code,range:state.range,profile:state.profile,phase:state.phase});}
   $('chartRange').value=String(state.range);
   const memory=new Map(),pendingJSON=new Map(),failedJSON=new Set();
-  async function fetchJSON(safe,reload){
+  async function fetchJSON(safe,reload,sha){
     const path=safe.split('?')[0],controller=new AbortController();let timer;
     // Research may pass two 15s worker version checks around a 20s body read.
     const timeout=path==='data/catalog.json'?15000:path.startsWith('data/research/')?60000:path==='data/archive/catalog.json'?45000:25000;
-    const label=path==='data/catalog.json'?'主图行情目录':path.startsWith('data/research/')?'冻结研究':path==='data/archive/catalog.json'?'扩展档案目录':'历史 K 线';
-    const body=(async()=>{const response=await fetch(safe,{cache:reload?'reload':'no-cache',signal:controller.signal});if(!response.ok)throw new Error(response.status===404?'这份快照尚未发布，或离线时未曾缓存。':'暂时无法读取快照，请联网后重试。');return response.json();})();
+    const label=path.startsWith('data/win-directory/')?'扩展验证':path==='data/catalog.json'?'主图行情目录':path==='data/win-evidence.json'?'本股历史验证':path.startsWith('data/research/')?'冻结研究':path==='data/archive/catalog.json'?'扩展档案目录':'历史 K 线';
+    const body=(async()=>{const response=await fetch(safe,{cache:reload?'reload':'no-cache',signal:controller.signal});if(!response.ok)throw new Error(response.status===404?'这份快照尚未发布，或离线时未曾缓存。':'暂时无法读取快照，请联网后重试。');if(!sha)return response.json();
+      if(!globalThis.crypto?.subtle)throw new Error('此浏览器不能核验扩展验证，请换用支持安全连接的浏览器。');
+      const raw=await response.arrayBuffer();
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',raw)),v=>v.toString(16).padStart(2,'0')).join('');
+      if(digest!==sha)throw new Error('扩展验证文件未通过完整性检查，请重试。');
+      return JSON.parse(new TextDecoder().decode(raw));})();
     try{return await Promise.race([body,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+'读取超时，请重试。')),timeout);})]);}finally{clearTimeout(timer);controller.abort();}
   }
-  async function readJSON(path,version,validate=data=>data,reload=false){
+  async function readJSON(path,version,validate=data=>data,reload=false,sha=null){
     let safe=safePath(path);if(version)safe+='?v='+encodeURIComponent(version);
     reload=reload||failedJSON.has(safe);if(reload)memory.delete(safe);
     if(memory.has(safe)){try{return validate(memory.get(safe));}catch(error){memory.delete(safe);failedJSON.add(safe);throw error;}}
     // First visits may not yet have a controlling service worker. Share the
     // pending body too, so A→B→A never downloads the same version twice. Only
     // caller-validated raw data enters memory; a wrong identity can be retried.
-    const request=pendingJSON.get(safe)||fetchJSON(safe,reload);
+    const request=pendingJSON.get(safe)||fetchJSON(safe,reload,sha);
     pendingJSON.set(safe,request);
-    try{const data=await request,accepted=validate(data);failedJSON.delete(safe);if(!memory.has(safe)){memory.set(safe,data);const archiveKeys=[...memory.keys()].filter(k=>k.startsWith('data/archive/charts/'));while(archiveKeys.length>12)memory.delete(archiveKeys.shift());window.PulseOffline?.remember(safe);}return accepted;}
+    try{const data=await request,accepted=validate(data);failedJSON.delete(safe);if(!memory.has(safe)){memory.set(safe,data);if(sha){const leaves=[...memory.keys()].filter(k=>k.startsWith('data/win-directory/')&&!k.includes('manifest.json'));while(leaves.length>6)memory.delete(leaves.shift());}const archiveKeys=[...memory.keys()].filter(k=>k.startsWith('data/archive/charts/'));while(archiveKeys.length>12)memory.delete(archiveKeys.shift());window.PulseOffline?.remember(safe);}return accepted;}
     catch(error){memory.delete(safe);failedJSON.add(safe);throw error;}
     finally{if(pendingJSON.get(safe)===request)pendingJSON.delete(safe);}
   }
-  const chartLoader=latestLoader(spec=>readJSON(spec.path,spec.version,d=>{if(spec.pool==='archive')return decodeArchiveChart(d,spec.asset,spec.version);if(d.archive_only)throw new Error('档案数据不能用作研究池行情。');if(d.snapshot_at!==spec.version||!Number.isFinite(Date.parse(spec.version)))throw new Error('行情快照版本已变化，请重新载入页面后查看。');if(d.code!==spec.code||d.market!==spec.market||d.currency!==spec.currency||d.historical_only!==true||d.period!=='day'||!Array.isArray(d.bars))throw new Error('快照与所选标的不一致。');if(d.bars.some((b,i)=>!['time','open','high','low','close','volume','available_at'].every(k=>finite(b[k]))||b.complete!==true||b.available_at<b.time||b.available_at>Date.parse(spec.version)/1000||b.time<=0||Math.min(b.open,b.high,b.low,b.close)<=0||b.volume<0||b.high<Math.max(b.open,b.low,b.close)||b.low>Math.min(b.open,b.close)||(i&&b.time<=d.bars[i-1].time)))throw new Error('K线格式、完成状态或时间顺序未通过校验。');return d;},spec.reload),data=>{state.chart=data;state.signals=state.pool==='archive'?[]:historicalSignals(data);$('locateDateInput').value=dateKey(data.bars.at(-1)?.time,data.market)||'';$('locateDateButton').disabled=!data.bars.length;renderChartMeta();renderSignals();drawChart();applyStartupRoute();},chartFailure);
+  const chartLoader=latestLoader(spec=>readJSON(spec.path,spec.version,d=>{if(spec.pool==='archive')return decodeArchiveChart(d,spec.asset,spec.version);if(d.archive_only)throw new Error('档案数据不能用作研究池行情。');if(d.snapshot_at!==spec.version||!Number.isFinite(Date.parse(spec.version)))throw new Error('行情快照版本已变化，请重新载入页面后查看。');if(d.code!==spec.code||d.market!==spec.market||d.currency!==spec.currency||d.historical_only!==true||d.period!=='day'||!Array.isArray(d.bars))throw new Error('快照与所选标的不一致。');if(d.bars.some((b,i)=>!['time','open','high','low','close','volume','available_at'].every(k=>finite(b[k]))||b.complete!==true||b.available_at<b.time||b.available_at>Date.parse(spec.version)/1000||b.time<=0||Math.min(b.open,b.high,b.low,b.close)<=0||b.volume<0||b.high<Math.max(b.open,b.low,b.close)||b.low>Math.min(b.open,b.close)||(i&&b.time<=d.bars[i-1].time)))throw new Error('K线格式、完成状态或时间顺序未通过校验。');return d;},spec.reload),data=>{state.chart=data;state.signals=state.pool==='archive'?[]:historicalSignals(data);$('locateDateInput').value=dateKey(data.bars.at(-1)?.time,data.market)||'';$('locateDateButton').disabled=!data.bars.length;renderChartMeta();renderEvidence();renderSignals();drawChart();applyStartupRoute();},chartFailure);
   const researchLoader=latestLoader(async spec=>{const path=resourcePath(spec.template,spec);return readJSON(path,spec.version,data=>{if(data.data_asof!==spec.data_asof)throw new Error('冻结研究版本已变化，请重新载入页面后查看。');if(!resultIdentity(data,spec))throw new Error('研究结果与所选方案、标的或阶段不一致。');return data;});},(data,spec)=>{$('researchStatus').textContent='';$('researchResult').innerHTML=resultHTML(data,spec);},error=>{$('researchStatus').textContent='';$('researchResult').innerHTML=`<div class="result-error">${escape(error.message)}<p><button type="button" data-retry-research>重新读取结果</button></p></div>`;});
+  let currentEvidence=null,evidenceError='';
+  const evidenceLoader=latestLoader(
+    spec=>readJSON('data/win-evidence.json',spec.catalog.snapshot_at,data=>profitEvidence(data,spec.asset,spec.catalog),spec.reload),
+    accepted=>{currentEvidence=accepted;evidenceError='';renderEvidence();},
+    error=>{currentEvidence=null;evidenceError=error.message;renderEvidence();}
+  );
+  async function readDirectoryEvidence(spec){
+    const {asset,catalog,reload}=spec;
+    const version=await readJSON('data/win-evidence.json',catalog.snapshot_at,d=>{
+      if(d?.schema_version!=='win-evidence-1'||d.catalog_snapshot_at!==catalog.snapshot_at
+          ||d.data_asof!==catalog.research_snapshot_at||!/^\d{8}-v[1-9]\d{0,3}$/.test(d.directory_version))
+        throw new Error('扩展验证目录未就绪或版本不一致，请重新载入新版。');
+      return d.directory_version;
+    },reload);
+    const bucket=evidenceBucket(asset.code),base='data/win-directory/'+version+'/',cutoff=catalog.research_snapshot_at;
+    const sha=await readJSON(base+'manifest.json',version,d=>{
+      if(d?.schema_version!=='win-directory-1'||d.version!==version||d.data_asof!==cutoff
+          ||!/^[a-f0-9]{64}$/.test(d.buckets?.[bucket]))throw new Error('扩展验证清单未通过核验。');
+      return d.buckets[bucket];
+    },reload);
+    const row=await readJSON(base+bucket+'.json',sha,d=>directoryProof(d,asset.code,version,bucket,cutoff),reload,sha);
+    return {row,cutoff};
+  }
+  function directoryProofHTML(result){
+    const provenance='<p class="directory-proof-source">研究口径 · 腾讯自选股未复权日线，统计截止 '+escape(result.cutoff.slice(0,10))+'。'+(result.row?.computed_at?'补验日期 '+escape(result.row.computed_at.slice(0,10))+'。':'')+'</p>';
+    return (result.row?evidenceHTML(result.row):'<strong>本股 S 买点 · 尚无验证结果</strong><span>本次扩展验证没有这只股票的记录。</span>')+provenance;
+  }
+  let directorySelection=null;
+  const directoryReader=latestLoader(readDirectoryEvidence,data=>{$('directoryProofBody').innerHTML=directoryProofHTML(data);},
+    error=>{$('directoryProofBody').innerHTML=proofError(error.message);});
+  function proofError(message){return `<strong>本股历史盈利频率暂不可用</strong><span>${escape(message)} <button type="button" class="text-button" data-retry-evidence>重试</button></span>`;}
+  function closeDirectoryProof(){
+    directorySelection=null;directoryReader.invalidate();const dialog=$('directoryProofDialog');
+    if(dialog?.open)dialog.close();
+  }
+  function openDirectoryProof(asset,reload=false){
+    const dialog=$('directoryProofDialog');if(!dialog||!asset||asset.market!==state.market)return;
+    directoryReader.invalidate();directorySelection=asset;
+    $('directoryProofTitle').textContent=asset.name+' · '+asset.code;
+    $('directoryProofBody').textContent='正在读取本股独立日线验证…';if(!dialog.open)dialog.showModal();
+    if(asset.kind!=='stock'){
+      $('directoryProofBody').textContent='本次扩展验证只覆盖普通股票，此证券暂无该项历史盈利估计。';return;
+    }
+    void directoryReader.load({asset,catalog:state.catalog,reload});
+  }
+  $('directoryProofClose')?.addEventListener('click',closeDirectoryProof);
+  $('directoryProofDialog')?.addEventListener('cancel',closeDirectoryProof);
+  $('directoryProofBody')?.addEventListener('click',e=>{if(directorySelection&&e.target.closest('[data-retry-evidence]'))openDirectoryProof(directorySelection,true);});
+  const archiveEvidenceReader=latestLoader(readDirectoryEvidence,data=>{
+    if(state.pool==='archive')$('symbolEvidence').innerHTML=directoryProofHTML(data);
+  },error=>{if(state.pool==='archive')$('symbolEvidence').innerHTML=proofError(error.message);});
+  function renderEvidence(){
+    const asset=state.asset,archive=state.pool==='archive';
+    const score=$('symbolScore'),host=$('symbolEvidence'),dialog=$('dialogEvidence');
+    if(score)score.innerHTML=archive?'':scoreHTML(asset,state.chart,currentEvidence?.latest);
+    if(archive)return;
+    const html=currentEvidence&&currentEvidence.row.code===asset?.code?evidenceHTML(currentEvidence.row)
+
+      :evidenceError?`<strong>本股历史盈利频率暂不可用</strong><span>${escape(evidenceError)} <button type="button" class="text-button" data-retry-evidence>重试</button></span>`
+      :'<span>正在读取本标的 S 买点历史验证…</span>';
+    if(host)host.innerHTML=html;
+    if(dialog&&state.selectedSignal?.quality?.grade==='S'&&asset)dialog.innerHTML=html;
+  }
+  function loadEvidence(reload=false){
+    evidenceLoader.invalidate();archiveEvidenceReader.invalidate();currentEvidence=null;evidenceError='';renderEvidence();
+    if(state.pool==='archive'){
+      const host=$('symbolEvidence'),a=state.asset;
+      if(host){
+        host.textContent=a?'正在读取本股独立日线验证…':'正在读取独立档案身份…';
+        if(a&&state.catalog?.assets.some(core=>core.code===a.code)){
+          host.innerHTML='<strong>独立档案 · 行情口径未核验</strong><button type="button" class="text-button" data-core-proof>查看同代码核心标的与本股验证 →</button>';
+        }else if(a)void archiveEvidenceReader.load({asset:a,catalog:state.catalog,reload});
+      }
+    }
+    if(state.asset&&state.pool==='core')void evidenceLoader.load({asset:state.asset,catalog:state.catalog,reload});
+  }
+  function retryEvidence(e){if(e.target.closest('[data-retry-evidence]'))loadEvidence(true);else if(state.pool==='archive'&&state.asset&&e.target.closest('[data-core-proof]'))selectAsset(state.asset.code);}
+  $('symbolEvidence')?.addEventListener('click',retryEvidence);
+  $('signalDetail').addEventListener('click',retryEvidence);
   function loadSelectedChart(reload=false){
     const a=state.asset;if(!a)return;const archive=state.pool==='archive';
     $('chartStatus').textContent='读取已发布历史…';$('chartEmpty').textContent='正在读取历史 K 线…';$('chartEmpty').classList.remove('hidden');
@@ -174,9 +324,9 @@
     if(!source){$('globalDirectoryRows').innerHTML='';$('globalDirectorySource').textContent='';$('globalDirectoryStatus').innerHTML=directoryState.error?`${escape(directoryState.error)} <button type="button" data-directory-retry>重新读取目录</button>`:'正在读取官方证券目录；不会批量请求行情…';return;}
     const result=globalDirectoryPage(directoryState.data,state.market,{query:$('globalDirectorySearch').value,kind:$('globalDirectoryKind').value,page:directoryState.page},state.catalog?.assets);directoryState.page=result.page;
     $('globalDirectoryStatus').textContent=`官方名录 ${number(source.assets.length,0)} 只证券；当前市场已缓存 ${number(state.catalog.assets.filter(a=>a.market===state.market).length,0)} 个重点标的。不同上市类别或币种柜台分别计数。`;
-    $('globalDirectoryRows').innerHTML=result.items.length?result.items.map(a=>`<div class="directory-row"><div><strong>${escape(a.name)}</strong><small>${escape(a.symbol)} · ${DIRECTORY_KINDS[a.kind]}${a.exchange?' · '+escape(a.exchange):''}${a.currency?' · '+escape(a.currency):''}</small></div>${a.cached?`<button type="button" data-directory-code="${escape(a.code)}">已缓存 · 看 K 线</button>`:'<span class="directory-not-cached">仅名录<br>未发布 K 线</span>'}</div>`).join(''):'<p class="note">没有匹配的证券名称或代码。可清空搜索或改为全部证券。</p>';
+    $('globalDirectoryRows').innerHTML=result.items.length?result.items.map(a=>`<div class="directory-row"><div><strong>${escape(a.name)}</strong><small>${escape(a.symbol)} · ${DIRECTORY_KINDS[a.kind]}${a.exchange?' · '+escape(a.exchange):''}${a.currency?' · '+escape(a.currency):''}</small></div>${a.cached?`<button type="button" data-directory-code="${escape(a.code)}">已缓存 · 看 K 线</button>`:`<div class="directory-proof-actions"><small>仅名录 · 未发布 K 线</small><button type="button" data-directory-proof="${escape(a.code)}">本票历史验证</button></div>`}</div>`).join(''):'<p class="note">没有匹配的证券名称或代码。可清空搜索或改为全部证券。</p>';
     $('globalDirectoryPageLabel').textContent=`${result.page+1} / ${result.pages} 页 · 匹配 ${number(result.total,0)} 只`;$('globalDirectoryPrev').disabled=result.page===0;$('globalDirectoryNext').disabled=result.page+1>=result.pages;$('globalDirectoryPagination').classList.remove('hidden');
-    $('globalDirectorySource').innerHTML=`来源：<a href="${escape(source.source_url)}" target="_blank" rel="noopener noreferrer">${state.market==='US'?'Nasdaq Trader 官方证券名录':'香港交易所官方证券名录'} ↗</a> · 源日期 ${escape(source.source_date)}。${escape(source.caveat)}<br>这是当前证券名单，不是历史回测池；未发布 K 线的条目不提供行情、信号或回测。`;
+    $('globalDirectorySource').innerHTML=`来源：<a href="${escape(source.source_url)}" target="_blank" rel="noopener noreferrer">${state.market==='US'?'Nasdaq Trader 官方证券名录':'香港交易所官方证券名录'} ↗</a> · 源日期 ${escape(source.source_date)}。${escape(source.caveat)}<br>这是当前证券名单，不是历史回测池；名录内普通股可单独查看已完成的历史盈利验证。`;
   }
   function ensureGlobalDirectory(){
     if(!['US','HK'].includes(state.market)||!state.catalog)return Promise.resolve();if(directoryState.data){renderGlobalDirectory();return Promise.resolve();}if(directoryState.pending)return directoryState.pending;
@@ -217,7 +367,7 @@
     priorityGroup=null;
     archiveRequest++;chartLoader.invalidate();researchLoader.invalidate();drag=null;
     Object.assign(state,{asset:null,chart:null,signals:[],view:null,hits:[],selectedSignal:null,offset:0,hover:null,pool:'archive',pickerPool:'archive',market:'CN'});
-    document.body.classList.add('archive-mode');
+    closeDirectoryProof();loadEvidence();document.body.classList.add('archive-mode');
     ['archiveChartNotice','archivePolicy'].forEach(id=>$(id).classList.remove('hidden'));['signalsPanel','research','researchJump'].forEach(id=>$(id).classList.add('hidden'));
     document.querySelectorAll('[data-core-legend]').forEach(e=>e.classList.add('hidden'));
     document.querySelectorAll('[data-market]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.market==='CN')));
@@ -240,21 +390,21 @@
     if(route.pool==='archive')restoreArchiveRoute(route.code);else selectAsset(chosen.asset.code,true);
   }
   function selectDisplayAsset(a,pool,fromRoute=false){
-    priorityGroup=pool==='core'?priorityGroupFor(a.code):null;
+    closeDirectoryProof();priorityGroup=pool==='core'?priorityGroupFor(a.code):null;
     archiveRequest++;state.archiveLoading=false;$('archiveOpen').disabled=false;$('assetSearch').disabled=false;state.pool=pool;state.pickerPool=pool;state.asset=a;state.market=a.market;if(pool==='core')state.lastCoreCode=a.code;if(!fromRoute)state.startupRoute=null;
     if(!fromRoute)rememberSelectionRoute(a,pool);
     drag=null;state.chart=null;state.signals=[];state.view=null;state.hits=[];state.selectedSignal=null;state.offset=0;state.hover=null;state.signalLimit=12;researchLoader.invalidate();rememberBrowse();
     $('locateDateInput').value='';$('locateDateStatus').textContent='';$('locateDateButton').disabled=true;['olderBars','newerBars','latestBars'].forEach(id=>$(id).disabled=true);$('signalScope').textContent='';$('chartTitle').textContent=a.name;$('pickerSelection').textContent=`${a.name} · ${a.code}${pool==='archive'?' · 档案':''}`;$('assetTag').textContent=`${pool==='archive'?'A 股历史档案':MARKET_NAMES[a.market]} / ${a.code}`;$('assetCurrency').textContent=a.currency||'';$('lastPrice').textContent='—';$('lastChange').textContent='';$('lastDate').textContent='—';$('chartReadout').textContent='—';$('chartSource').textContent='';$('chartStatus').textContent='读取已发布历史…';$('chartEmpty').textContent='正在读取历史 K 线…';$('chartEmpty').classList.remove('hidden');$('signalList').innerHTML='<p class="empty">读取历史信号…</p>';$('signalCount').textContent='';$('assetPicker').open=false;
     const archive=pool==='archive';document.body.classList.toggle('archive-mode',archive);$('archiveChartNotice').classList.toggle('hidden',!archive);$('archivePolicy').classList.toggle('hidden',!archive);$('signalsPanel').classList.toggle('hidden',archive);$('research').classList.toggle('hidden',archive);$('researchJump').classList.toggle('hidden',archive);document.querySelectorAll('[data-core-legend]').forEach(e=>e.classList.toggle('hidden',archive));$('researchResult').innerHTML='';$('researchStatus').innerHTML=!archive&&state.researchLoading?'<p class="empty">正在读取冻结研究目录…</p>':'';
-    document.querySelectorAll('[data-market]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.market===a.market)));queueMicrotask(()=>window.dispatchEvent(new CustomEvent('pulse:market',{detail:{market:state.market,pool:state.pool}})));renderAssets();drawChart();loadSelectedChart();if(!archive&&state.researchLoaded){renderResearchControls();loadResearch();}
+    document.querySelectorAll('[data-market]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.market===a.market)));queueMicrotask(()=>window.dispatchEvent(new CustomEvent('pulse:market',{detail:{market:state.market,pool:state.pool}})));renderAssets();drawChart();loadSelectedChart();loadEvidence();if(!archive&&state.researchLoaded){renderResearchControls();loadResearch();}
   }
   function returnToCore(){state.pickerPool='core';$('assetSearch').value='';selectAsset(state.catalog?.assets.find(a=>a.code===state.lastCoreCode&&a.market==='CN')?.code||'sh510300');}
   function applyStartupRoute(){const route=state.startupRoute;state.startupRoute=null;if(!route||route.pool!=='core'||state.pool!=='core'||!state.chart)return;state.grade=route.grade;state.filter=route.side;$('signalGrade').value=route.grade;document.querySelectorAll('[data-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.filter===route.side)));renderSignals();if(!route.date)return;state.range=90;$('chartRange').value='90';$('locateDateInput').value=route.date;locateRequestedDate();const index=state.signals.findIndex(s=>dateKey(s.time,state.market)===route.date&&(route.grade==='all'||s.quality?.grade===route.grade)&&(route.side==='all'||s.side===route.side));if(index>=0){if(activePage==='chart')showSignal(index);else $('locateDateStatus').textContent+=' 链接中的历史信号已保留，可点击对应买卖点查看详情。';}else $('locateDateStatus').textContent+=' 该日没有匹配的历史信号，未替换成其他日期记录。';}
   function renderChartMeta(){const c=state.chart,bs=c.bars,last=bs.at(-1),prior=bs.at(-2);if(!last){$('chartEmpty').textContent='此标的没有可展示的日线。';$('chartEmpty').classList.remove('hidden');$('chartStatus').textContent='当前快照没有日线';$('chartSource').textContent='可切换其他标的或载入新版页面；没有用其他标的数据替代。';return;}$('chartEmpty').classList.add('hidden');$('lastPrice').textContent=number(last.close,priceDigits(state.asset));$('lastDate').textContent=dateLabel(last.time,c.market);const change=!c.archive_only&&prior&&prior.close>0?(last.close/prior.close-1)*100:null;$('lastChange').textContent=c.archive_only?'历史价格记录':pct(change);$('lastChange').className=change>0?'positive':change<0?'negative':'';$('chartSource').textContent=`来源：${c.archive_only?'本地历史数据档案':c.source||state.asset.source||'未返回'}。行情截至 ${dateLabel(last.time,c.market)}；快照生成 ${stampLabel(c.archive_only?c.generated_at:state.catalog.generated_at)}。${c.archive_only?`价格复权口径与成交量单位均未核验。${(c.notes||[]).join(' ')}`:[c.availability_note,c.truncated_note||c.note].filter(Boolean).join(' ')}`;}
   function renderSignals(){if(state.pool==='archive'){$('signalList').innerHTML='';$('signalCount').textContent='不提供信号';return;}const selected=signalSelection(state.signals,state.chart?.bars||[],{side:state.filter,grade:state.grade,range:state.signalRange}),filtered=selected.rows;$('signalCount').textContent=`${filtered.length} 条历史记录`;$('signalScope').textContent=selected.count?`${state.signalRange==='all'?'全部已载日线':`按行情末根向前 ${selected.count} 根日 K`} · ${dateLabel(selected.start,state.market)} — ${dateLabel(selected.end,state.market)}。筛选作用于记录列表，图上保留全部历史标记。`:'当前标的尚未加载历史，无法筛选。';$('signalList').innerHTML=filtered.length?filtered.slice(0,state.signalLimit).map(s=>{const i=state.signals.indexOf(s);return `<button type="button" class="signal-row ${s.side==='sell'?'sell':'buy'}" data-signal="${i}"><span><span class="kind">${s.side==='sell'?'卖出提醒':'买入信号'}</span>${s.quality?.grade?`<span class="grade">${escape(s.quality.grade)} 级</span>`:''}<span class="signal-row-arrow" aria-hidden="true">›</span></span><span class="date">${dateLabel(s.time,state.market)}<small>参考 ${number(s.price,priceDigits(state.asset))} ${escape(state.asset.currency)}</small></span></button>`;}).join(''):'<p class="empty">当前类型、等级与日线范围内没有历史信号。可放宽筛选；这不表示当前市场没有机会。</p>';$('moreSignals').classList.toggle('hidden',filtered.length<=state.signalLimit);}
   function showSignal(index){if(state.pool==='archive'||activePage!=='chart')return;const s=state.signals[index];if(!s)return;state.selectedSignal=s;const p=protection(s);$('signalDialogTitle').textContent=`${s.side==='sell'?'历史卖出提醒':'历史买入信号'}${s.quality?.grade?' · '+s.quality.grade+' 级':''}`;
-    $('signalDetail').innerHTML=`<div class="signal-detail-head">${escape(state.asset.name)} · ${dateLabel(s.time,state.market)}<small>当时参考价 ${number(s.price,4)} ${escape(state.asset.currency)}<br>确认时间：${dateLabel(s.confirmed_at,state.market,true)}${s.availability_estimated?'（估计）':''}</small></div><p class="note"><b>信号后的收盘表现</b><br>${escape(signalFollowUp(s,state.chart))}<br>行情来源 · ${escape(state.chart.source||'公开历史快照')}</p>${s.side==='buy'&&p?`<div class="signal-detail-price"><div><small>当时参考价</small><strong>${number(p.reference,4)}</strong></div><div><small>当时参考止损</small><strong>${number(p.stop,4)}</strong></div><div><small>当时参考止盈</small><strong>${number(p.take,4)}</strong></div></div><p class="note">按该信号确认时的参考价与保护比例估算：止损距离 ${number(p.stop_pct)}%，止盈距离 ${number(p.take_pct)}%，最长 ${number(p.hold,0)} 根。此处不使用后来才知道的下一根开盘价。回测真正入场后的保护价见逐笔交易；手续费、滑点、跳空和无法成交会改变结果。</p>`:s.side==='buy'?'<p class="note">没有可验证的完整保护计划，未生成猜测价格。</p>':''}<p class="note">${escape(s.reason||s.name||'规则条件成立。')}${s.side==='sell'?' 仅对当时已有持仓适用；这条提醒不等于账户已经卖出。':''}</p>${qualityHTML(s.quality,s.side)}<p class="note">只读取当时及此前已完成 K 线，条件确认后最早在下一根开盘尝试执行。等级表示规则条件，不表示盈利概率；历史快照不能确认现在是否仍成立。</p>`;
-    $('signalDialog').showModal();}
+    $('signalDetail').innerHTML=`<div class="signal-detail-head">${escape(state.asset.name)} · ${dateLabel(s.time,state.market)}<small>${s.side==='buy'&&finite(s.quality?.score)?'信号当日技术评分 '+escape(s.quality.score)+' 分 · ':''}当时参考价 ${number(s.price,4)} ${escape(state.asset.currency)}<br>确认时间：${dateLabel(s.confirmed_at,state.market,true)}${s.availability_estimated?'（估计）':''}</small></div><p class="note"><b>信号后的收盘表现</b><br>${escape(signalFollowUp(s,state.chart))}<br>行情来源 · ${escape(state.chart.source||'公开历史快照')}</p>${s.side==='buy'&&p?`<div class="signal-detail-price"><div><small>当时参考价</small><strong>${number(p.reference,4)}</strong></div><div><small>当时参考止损</small><strong>${number(p.stop,4)}</strong></div><div><small>当时参考止盈</small><strong>${number(p.take,4)}</strong></div></div><p class="note">按该信号确认时的参考价与保护比例估算：止损距离 ${number(p.stop_pct)}%，止盈距离 ${number(p.take_pct)}%，最长 ${number(p.hold,0)} 根。此处不使用后来才知道的下一根开盘价。回测真正入场后的保护价见逐笔交易；手续费、滑点、跳空和无法成交会改变结果。</p>`:s.side==='buy'?'<p class="note">没有可验证的完整保护计划，未生成猜测价格。</p>':''}<p class="note">${escape(s.reason||s.name||'规则条件成立。')}${s.side==='sell'?' 仅对当时已有持仓适用；这条提醒不等于账户已经卖出。':''}</p>${s.quality?.grade==='S'?'<div id="dialogEvidence" class="dialog-evidence"></div>':''}${qualityHTML(s.quality,s.side)}<p class="note">只读取当时及此前已完成 K 线，条件确认后最早在下一根开盘尝试执行。等级表示规则条件，不表示盈利概率；历史快照不能确认现在是否仍成立。</p>`;
+    renderEvidence();$('signalDialog').showModal();}
   function drawChart(){renderZoomControls();const canvas=$('candleChart'),r=canvas.getBoundingClientRect(),w=r.width,h=r.height;if(!w||!h)return;const dpr=window.devicePixelRatio||1;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);if(!state.chart?.bars?.length)return;
     const palette=window.PulseTheme?.palette()||{line:'#dce4ef',muted:'#65758b',up:'#cf4453',down:'#16876c',ma:'#8862bd',buy:'#246bfd',sell:'#b78120',crosshair:'#64748b'};const c=state.chart,v=viewport(c.bars,state.range,state.offset),bs=v.bars;state.view=v;const left=4,right=w-(w<500?54:70),top=18,bottom=h-58,vb=h-28,step=(right-left)/Math.max(bs.length,25),x=i=>left+(i+.5)*step;let lo=Math.min(...bs.map(b=>b.low)),hi=Math.max(...bs.map(b=>b.high)),pad=(hi-lo||hi*.01)*.13;lo-=pad;hi+=pad;const y=p=>bottom-(p-lo)/(hi-lo)*(bottom-top);ctx.font='10px -apple-system, sans-serif';ctx.lineWidth=1;
     for(let i=0;i<4;i++){const p=lo+(hi-lo)*i/3;ctx.strokeStyle=palette.line;ctx.beginPath();ctx.moveTo(left,y(p));ctx.lineTo(right,y(p));ctx.stroke();ctx.fillStyle=palette.muted;ctx.fillText(number(p,priceDigits(state.asset)),right+7,y(p)+3);}
@@ -284,7 +434,9 @@
     $('assetSearch').value='';if(a.market==='US'&&!state.phaseChosen&&state.phase==='validation')state.phase='recent';selectAsset(a.code);
   });
   $('globalDirectory')?.addEventListener('toggle',()=>{if($('globalDirectory').open)ensureGlobalDirectory();});
-  $('globalDirectory')?.addEventListener('click',e=>{if(e.target.closest('[data-directory-retry]')){void ensureGlobalDirectory();return;}const code=e.target.closest('[data-directory-code]')?.dataset.directoryCode;if(!code)return;const asset=state.catalog?.assets.find(a=>a.code===code&&a.market===state.market);if(asset&&directoryState.data?.markets?.[state.market]?.assets.some(a=>a.code===code))selectAsset(code);});
+  $('globalDirectory')?.addEventListener('click',e=>{if(e.target.closest('[data-directory-retry]')){void ensureGlobalDirectory();return;}const proof=e.target.closest('[data-directory-proof]')?.dataset.directoryProof;
+    if(proof){const asset=directoryState.data?.markets?.[state.market]?.assets.find(a=>a.code===proof);if(asset)openDirectoryProof(asset);return;}
+    const code=e.target.closest('[data-directory-code]')?.dataset.directoryCode;if(!code)return;const asset=state.catalog?.assets.find(a=>a.code===code&&a.market===state.market);if(asset&&directoryState.data?.markets?.[state.market]?.assets.some(a=>a.code===code))selectAsset(code);});
   ['globalDirectorySearch','globalDirectoryKind'].forEach(id=>$(id)?.addEventListener(id.endsWith('Search')?'input':'change',()=>{directoryState.page=0;renderGlobalDirectory();}));
   [['globalDirectoryPrev',-1],['globalDirectoryNext',1]].forEach(([id,step])=>$(id)?.addEventListener('click',()=>{directoryState.page+=step;renderGlobalDirectory();if($('globalDirectoryRows'))$('globalDirectoryRows').scrollTop=0;}));
   $('assetList').addEventListener('click',e=>{const b=e.target.closest('[data-code]');if(!b)return;if(b.dataset.pool==='archive')selectArchiveAsset(b.dataset.code);else selectAsset(b.dataset.code);});$('assetSearch').addEventListener('input',()=>{state.archivePage=0;renderAssets();});$('archiveOpen').addEventListener('click',()=>openArchive());['archiveBack','archiveReturn','archivePolicyReturn'].forEach(id=>$(id).addEventListener('click',returnToCore));[['archivePrev',-1],['archiveNext',1]].forEach(([id,step])=>$(id).addEventListener('click',()=>{state.archivePage+=step;renderAssets();$('assetList').scrollTop=0;}));
@@ -333,7 +485,7 @@
   async function boot(reload=false){try{const c=await readJSON('data/catalog.json',undefined,coreCatalog,reload);state.catalog=c;handledQuery=location.search||'';$('assetSearch').disabled=false;$('archiveOpen').disabled=false;$('snapshotMeta').textContent=`${c.assets.length} 个公开标的 · 发布 ${stampLabel(c.generated_at)} · 行情快照 ${stampLabel(c.snapshot_at)}`;const route=startupRoute(location.search);state.startupRoute=route;const chosen=initialAsset(c.assets,location.search,savedBrowse.symbol);if(route.pool==='core'&&chosen.invalidSymbol)state.startupRoute=null;if(chosen.asset.market==='US'&&!savedBrowse.phase)state.phase='recent';$('browseStatus').textContent=chosen.invalidSymbol?'链接中的标的不在公开目录中，已安全回到上次标的或默认标的。':'';if(route.pool==='archive'){state.market='CN';await openArchive(route.code,true);}else{if(route.invalidArchive)$('browseStatus').textContent='档案链接无效，已打开研究池。';selectAsset(chosen.asset.code,true);}if('IntersectionObserver'in window){const observer=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting)){ensureResearch();observer.disconnect();}},{rootMargin:'250px'});observer.observe($('research'));}else ensureResearch();}catch(e){$('assetSearch').disabled=true;$('snapshotMeta').textContent=e.message;$('chartEmpty').innerHTML=`${escape(e.message)}<br><button type="button" id="retryBoot">重新读取</button>`;$('retryBoot')?.addEventListener('click',startBoot);$('pickerSelection').textContent='目录尚不可用';}}
   window.addEventListener('pulse:theme',()=>requestAnimationFrame(drawChart));
   window.addEventListener('popstate',restoreHistoryRoute);
-  window.addEventListener('pulse:page',e=>{const page=e.detail?.page;if(!mobilePages.has(page))return;activePage=page;if(page!=='chart'&&$('signalDialog').open)$('signalDialog').close();if(page==='chart')requestAnimationFrame(drawChart);if(page==='research')ensureResearch();});
+  window.addEventListener('pulse:page',e=>{const page=e.detail?.page;if(!mobilePages.has(page))return;activePage=page;if(page!=='chart')closeDirectoryProof();if(page!=='chart'&&$('signalDialog').open)$('signalDialog').close();if(page==='chart')requestAnimationFrame(drawChart);if(page==='research')ensureResearch();});
   let bootTask=null,bootPending=false;
   function startBoot(){if(bootPending)return bootTask;bootPending=true;bootTask=boot(bootTask!==null).finally(()=>{bootPending=false;});return bootTask;}
   async function sharedCoreCatalog(){if(!state.catalog)await bootTask;if(!state.catalog)throw new Error('主图行情目录读取失败，请重试或重新载入页面。');return state.catalog;}

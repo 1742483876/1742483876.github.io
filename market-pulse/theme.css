@@ -38,3 +38,34 @@ html{background:var(--bg)}body{background:var(--bg);color:var(--text)}.top{borde
   .signals-card .note{font-size:11px}.signal-row .kind{font-size:12px}.signal-row .date{font-size:11px}.signal-row .date small{font-size:10px}
   .picker .global-directory>summary{font-size:12px;min-height:38px}.global-directory>summary small{font-size:10px}.directory-tools label{font-size:11px}.directory-row strong{font-size:12px}.directory-row small,.directory-not-cached{font-size:10px}.directory-row button{min-height:38px;max-width:96px;font-size:10px}.global-directory .source-line{font-size:11px}
 }
+
+.symbol-evidence {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: var(--panel2);
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+#symbolScore:not(:empty) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+#symbolScore small, #symbolScore b, #symbolEvidence strong, #symbolEvidence span,
+.dialog-evidence strong, .dialog-evidence span { display: block; }
+#symbolScore small, #symbolEvidence span, .dialog-evidence span { color: var(--muted); }
+#symbolScore b { font-variant-numeric: tabular-nums; }
+#symbolEvidence summary, .dialog-evidence summary { color: var(--accent); padding: 5px 0; cursor: pointer; }
+#symbolEvidence p, .dialog-evidence p { margin: 3px 0; }
+.dialog-evidence { margin: 10px 0; padding: 8px 10px; background: var(--panel2); border-radius: 6px; }
+#symbolScore .grade-note { grid-column: 1 / -1; margin-top: -6px; color: var(--muted); }
+.grade-note summary { cursor: pointer; color: var(--accent); }
+.grade-note p { margin: 4px 0; }
+.directory-proof-actions { text-align: right; flex-shrink: 0; }
+.directory-proof-actions small { display: block; }
+.directory-proof-source { color: var(--muted); font-size: 12px; margin-top: 8px; }
