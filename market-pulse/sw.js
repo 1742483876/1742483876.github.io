@@ -1,11 +1,11 @@
 'use strict';
-const BUILD='7b318c9a9ddb44c2';
+const BUILD='d4f864950c8e98c8';
 const SCOPE=new URL(self.registration.scope);
 const PREFIX='market-pulse-mobile:'+SCOPE.pathname+':';
 const SHELL=PREFIX+'shell:'+BUILD, DATA=PREFIX+'data:v2';
-const SHELL_FILES=['./','./index.html','./style.css','./app.js','./offline.js','./recent-signals.js','./recent-signals.css','./mobile-shell.js','./mobile-shell.css','./market-pages.js','./market-pages.css','./theme.js','./theme.css','./upgrade.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
+const SHELL_FILES=['./','./index.html','./style.css','./app.js','./offline.js','./signal-ranking.js','./recent-signals.js','./recent-signals.css','./mobile-shell.js','./mobile-shell.css','./market-pages.js','./market-pages.css','./theme.js','./theme.css','./upgrade.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 const SHELL_PATHS=new Set(SHELL_FILES.map(p=>new URL(p,SCOPE).pathname));
-const PINNED_DATA_PATHS=new Set(['data/catalog.json','data/research/catalog.json','data/archive/catalog.json','data/signals/recent.json','data/win-evidence.json','data/analytics/catalog.json','data/global-directory.json'].map(p=>new URL(p,SCOPE).pathname));
+const PINNED_DATA_PATHS=new Set(['data/catalog.json','data/research/catalog.json','data/archive/catalog.json','data/signals/recent.json','data/win-evidence.json','data/signal-priority.json','data/analytics/catalog.json','data/global-directory.json'].map(p=>new URL(p,SCOPE).pathname));
 const ANALYTICS_FILES=new Set(['catalog','sectors-CN','sectors-HK','sectors-US','environment-CN','environment-HK','environment-US','environment-BTC']);
 const CODE='(?:BTC-USD|(?:sh|sz)[0-9]{6}|hk[0-9]{5}|us[A-Z][A-Z0-9.\\-]{0,12})';
 const CHART=new RegExp('^data/charts/('+CODE+')/day\\.json$');
@@ -26,6 +26,11 @@ function dataIdentity(value){
     const url=new URL(raw,SCOPE);
     if(url.origin!==SCOPE.origin||!url.pathname.startsWith(SCOPE.pathname)||url.hash||url.username||url.password)return null;
     const path=url.pathname.slice(SCOPE.pathname.length),query=[...url.searchParams];
+    if(query.length===2 && ['data/signals/recent.json','data/signal-priority.json'].includes(path)){
+      const version=url.searchParams.get('v'), revision=url.searchParams.get('r');
+      if(!version||version.length>128||!/^[0-9a-f]{64}$/.test(revision||''))return null;
+      return {url,path,version,revision,kind:path==='data/signals/recent.json'?'signal-index':'signal-priority'};
+    }
     if(query.length>1||(query.length===1&&(query[0][0]!=='v'||!query[0][1]||query[0][1].length>128)))return null;
     const version=query[0]?.[1]||null;
     if(path==='data/catalog.json'||path==='data/research/catalog.json')return {url,path,version,kind:path==='data/catalog.json'?'catalog':'research-catalog'};
@@ -35,6 +40,7 @@ function dataIdentity(value){
       if(extended[2]!=='manifest'&&/^[0-9a-f]{64}$/.test(version||''))return {url,path,version,kind:'directory-proof-leaf',edition:extended[1],bucket:extended[2]};
       return null;
     }
+    if(path==='data/signal-priority.json'&&version)return {url,path,version,kind:'signal-priority'};
     if(path==='data/win-evidence.json'&&version)return {url,path,version,kind:'win-evidence'};
     if(path==='data/global-directory.json')return {url,path,version,kind:'global-directory'};
     if(path==='data/archive/catalog.json')return {url,path,version,kind:'archive-catalog'};
@@ -113,7 +119,7 @@ async function cachedData(request){
     if(name.startsWith(PREFIX+'data:')&&name!==DATA){const legacy=await caches.open(name),stored=await legacy.match(request);if(stored)return stored;stores.push(legacy);}
   }
   const id=dataIdentity(request);
-  if(id?.kind==='signal-index'&&id.version){
+  if(id?.kind==='signal-index'&&id.version&&!id.revision){
     // Older shells saved this one directory without a query. Reuse it only
     // when its declared snapshot exactly matches the requested version.
     const unversioned=new URL(id.url);unversioned.search='';
@@ -136,6 +142,7 @@ function validPayload(payload,id,expected){
     if(payload.schema_version!=='win-directory-1'||payload.version!==id.edition||typeof payload.data_asof!=='string')return false;
     return id.kind==='directory-proof-catalog'?!!payload.buckets&&typeof payload.buckets==='object':payload.bucket===id.bucket&&!!payload.by_code&&typeof payload.by_code==='object';
   }
+  if(id.kind==='signal-priority')return payload.schema_version==='signal-priority-1'&&payload.catalog_snapshot_at===id.version&&!!payload.by_code&&typeof payload.by_code==='object';
   if(id.kind==='win-evidence')return payload.schema_version==='win-evidence-1'&&payload.catalog_snapshot_at===id.version&&typeof payload.data_asof==='string'&&payload.by_code&&typeof payload.by_code==='object'&&payload.latest_day_by_code&&typeof payload.latest_day_by_code==='object';
   if(id.kind==='global-directory')return !id.version&&payload.schema_version===1&&typeof payload.retrieved_at==='string'&&['US','HK'].every(m=>{const d=payload.markets?.[m];if(!d||!Array.isArray(d.assets)||d.assets.length>30000)return false;try{const u=new URL(d.source_url);return u.protocol==='https:'&&!u.username&&!u.password&&u.hostname===(m==='US'?'www.nasdaqtrader.com':'www.hkex.com.hk')&&d.assets.every(a=>a&&typeof a.code==='string'&&typeof a.name==='string'&&['stock','etf','security','reit','leveraged_etp'].includes(a.kind));}catch(_){return false;}});
   if(id.kind==='catalog')return Array.isArray(payload.assets)&&typeof payload.snapshot_at==='string'&&(!id.version||payload.snapshot_at===id.version);
@@ -180,6 +187,11 @@ async function refreshData(request,id,stored,cacheMode='no-store'){
     const deadline=id.kind.includes('catalog')?CATALOG_TIMEOUT:DATA_TIMEOUT;
     const {response,payload}=await timedFetch(request,deadline,cacheMode);
     if(!response.ok)return stored?previousBuildFallback(request,id,stored):response;
+    if(id.revision){
+      const bytes=await response.clone().arrayBuffer();
+      const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+      if(digest!==id.revision)return stored||unavailable('当前文件与页面校验不匹配，请重新载入新版。');
+    }
     if(!validPayload(payload,id,before))return stored?previousBuildFallback(request,id,stored):unavailable('发布版本已变化，请刷新目录；不会混用不同快照。');
     if(research){
       // Bracket the body with directory checks to catch a deployment between

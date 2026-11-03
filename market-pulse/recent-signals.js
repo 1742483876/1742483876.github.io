@@ -65,12 +65,94 @@
     if (s.side!=='buy' || !p || !finite(ref) || ref<=0 || !finite(p.stop_pct) || p.stop_pct<=0 || p.stop_pct>=100 || !finite(p.take_pct) || p.take_pct<=0) return '';
     return `当时参考止损 ${fmt(ref*(1-p.stop_pct/100))} · 止盈 ${fmt(ref*(1+p.take_pct/100))} ${esc(s.currency)}`;
   }
-  function rowHTML(s,now=Date.now()/1000) {
-    const confirmed=marketDate(s.confirmed_at,s.market),today=marketDate(now,s.market);
-    const followUp=s.bar_age===0?'快照尚无信号后的已收盘日线。':`快照含信号后 ${s.bar_age} 根日线，点开查看收盘涨跌。`;
-    return `<a class="radar-row ${s.side}" href="${esc(signalLink(s))}"><div><strong>${esc(s.name)} <span>${esc(s.code)}</span></strong><b>${s.side==='buy'?'S · 历史买点':'S · 历史卖点'}</b></div><p>${confirmed===today&&s.confirmed_at<=now?'今日确认':'历史确认'} ${esc(confirmed)} · 当时参考价 ${fmt(s.price)} ${esc(s.currency)}${s.signal_date!==confirmed?` · 信号 K 线 ${esc(s.signal_date)}`:''}</p><small>${s.side==='sell'?'退出紧迫度评级，仅适用于当时已有持仓。':referencePlan(s)||'查看当时的信号依据与保护计划。'}</small><small>本股行情截至 ${esc(s.source_asof)} · ${esc(s.source||'公开历史快照')}</small><small>${followUp} 查看 K 线与本股验证 →</small></a>`;
+  const ranking = typeof module !== 'undefined' && module.exports
+    ? require('./signal-ranking.js') : window.PulseSignalRanking;
+  const VIEW_KEY = 'pulse:mobile-recent-signals:view:v1';
+  function readView(storage) {
+    let raw = {};
+    try { raw = JSON.parse(storage?.getItem(VIEW_KEY) || '{}') || {}; } catch (_) {}
+    return {mode:['leader','time','cap'].includes(raw.mode) ? raw.mode : 'leader', motion:raw.motion!==false};
   }
-  const api={FILTER_KEY,normalizeFilters,readFilters,saveFilters,validSignal,selectSignals,signalLink,referencePlan,rowHTML,validateFeed,marketDate,dateWindow,snapshotTime,bounded};
+  const stateLabels = {
+    active:'快照条件仍成立', unconfirmed:'待复核', expired:'已失效', missed_entry:'已偏离',
+    stop_touched:'已触及参考止损', take_touched:'已触及参考止盈'
+  };
+  function expectedDay(market, now) {
+    const day = marketDate(now,market);
+    const clock = new Intl.DateTimeFormat('en-GB', {timeZone:zones[market],hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now*1000);
+    let date = new Date(day+'T00:00:00Z');
+    if (clock < (market==='CN'?'15:10':'16:10')) date.setUTCDate(date.getUTCDate()-1);
+    while (date.getUTCDay()===0 || date.getUTCDay()===6) date.setUTCDate(date.getUTCDate()-1);
+    return date.toISOString().slice(0,10);
+  }
+  function asOfState(s, expected) {
+    const state = Object.hasOwn(stateLabels,s.status) ? s.status : 'unconfirmed';
+    if (state==='active' && (!s.data_end || s.data_end<expected[s.market])) return 'unconfirmed';
+    return state;
+  }
+  function validatePriority(value,catalog) {
+    if (value?.schema_version!=='signal-priority-1' || value.catalog_snapshot_at!==catalog.snapshot_at ||
+        !value.by_code || typeof value.by_code!=='object' || Array.isArray(value.by_code)) throw Error('市值资料版本不匹配');
+    const byCode = Object.create(null);
+    for (const a of catalog.assets) {
+      const m=value.by_code[a.code];
+      if (!m || m.code!==a.code || m.market!==a.market || m.currency!==a.currency || m.kind!==a.kind) continue;
+      if (m.market_cap!=null && (!finite(m.market_cap) || m.market_cap<=0 || !validDate(m.cap_asof))) continue;
+      if (m.peer_rank!=null && (!Number.isInteger(m.peer_rank) || !Number.isInteger(m.peer_count) ||
+          m.peer_rank<1 || m.peer_count<2 || m.peer_rank>m.peer_count || !validDate(m.peer_asof) )) continue;
+      byCode[a.code]=m;
+    }
+    return byCode;
+  }
+  const marketNames={CN:'A 股',US:'美股'};
+  function rowHTML(s,now=Date.now()/1000,opts={}) {
+    const {index=1,meta=null,state='unconfirmed',asset=null,review=null}=opts;
+    const confirmed=marketDate(s.confirmed_at,s.market),today=marketDate(now,s.market);
+    const isFund=asset?.kind==='etf'||meta?.kind==='etf';
+    const cap=meta&&!isFund?ranking?.formatCap(meta):'';
+    const rank=cap?ranking?.leaderLabel(meta):'';
+    const notch=rank?Math.round(100*(meta.peer_count-meta.peer_rank)/(meta.peer_count-1)):0;
+    const sector=meta?.sector||asset?.sector_name||'';
+    const code=s.code.replace(/^(sh|sz|us)/,'');
+    const closeNote=review?`${review.date.slice(5).replace('-','/')} 收盘数据 · 日内触及原参考${state==='stop_touched'?'止损':'止盈'}`:'';
+    const stateLabel = state==='active' && s.side==='sell'?'快照仍转弱':stateLabels[state]||stateLabels.unconfirmed;
+    const capLabel=cap?'市值 '+cap:isFund?'ETF · 不参与公司市值排名':'市值暂无';
+    const rawRankDate=rank&&validDate(meta.peer_asof)?meta.peer_asof.slice(5).replace('-','/'):'';
+    const capDate=cap?meta.cap_asof.slice(5).replace('-','/'):'';
+    const tip=cap?[meta.source, '行情日 '+meta.cap_asof,meta.peer_scope].filter(Boolean).join(' · '):'';
+    return `<a class="radar-row ${s.side}" data-radar-key="${esc(s.id||s.code)}" href="${esc(signalLink(s))}">
+      <span class="radar-number" aria-label="组内排序 ${index}">${String(index).padStart(2,'0')}</span>
+      <div class="radar-row-content"><div class="radar-row-heading"><strong>${esc(s.name)}</strong><span class="radar-state" data-state="${esc(state)}" title="${esc(closeNote||s.status_reason||'当前条件待核验')}">${esc(stateLabel)}</span></div>
+      <div class="radar-identity">${esc(marketNames[s.market])} · ${esc(code)}${sector?' · '+esc(sector):''}</div>
+      <div class="radar-scales" title="${esc(tip)}"><span>${esc(capLabel)}${capDate?` <small>${capDate}</small>`:''}</span>${rank?`<span class="radar-peer" data-leader="${!!ranking?.isLeader(meta,now)}">${esc(rank)}${rawRankDate?` · ${rawRankDate}`:''}<i class="radar-peer-track" style="--peer-position:${notch}%" aria-hidden="true"><i></i></i></span>`:''}</div>
+      ${review?`<div class="radar-review-close" title="${esc(review.source)}">${esc(closeNote)}</div>`:''}<div class="radar-row-foot"><span>${confirmed===today&&s.confirmed_at<=now?'今日确认':'历史确认'} ${esc(confirmed)}${s.source_asof?' · 行情至 '+esc(s.source_asof.slice(5).replace('-','/')):''}</span><span>查看详情 <i aria-hidden="true">↗</i></span></div>
+      <span class="sr-only">当时参考价 ${fmt(s.price)} ${esc(s.currency)}。${s.side==='sell'?'退出紧迫度仅用于当时已有持仓。':referencePlan(s)}。本股行情截至 ${esc(s.source_asof)}。${esc(tip)}</span></div></a>`;
+  }
+  function groupedRows(rows,{mode,byCode,assets,now}) {
+    const expected={CN:expectedDay('CN',now),US:expectedDay('US',now)};
+    const states=new Map(rows.map(s=>{
+      const base=asOfState(s,expected);
+      const check=ranking?.referenceReview?.(s,byCode[s.code],base,now);
+      return [s,{state:check?.state??base,review:check?.close??null}];
+    }));
+    const options={mode,byCode,stateFor:s=>states.get(s).state,getDay:s=>marketDate(s.confirmed_at,s.market),todayFor:s=>marketDate(now,s.market)};
+    const sorted=(list)=>ranking?ranking.rankSignals(list,{...options,now}):list;
+    function section(subset,archived){
+      return ['buy','sell'].map(side=>{
+        const ordered=sorted(subset.filter(s=>s.side===side));
+        if (!ordered.length) return '';
+        const caption=side==='buy'?'历史买点':'历史卖点';
+        const sub=archived?'计划仅供复盘':side==='buy'?'查看原入场条件':'持仓退出复盘';
+        const groups=mode==='cap'?['CN','US'].map(m=>[m,ordered.filter(s=>s.market===m)]).filter(pair=>pair[1].length):[[null,ordered]];
+        const lists=groups.map(([m,items])=>`${m?`<div class="radar-market-head">${marketNames[m]}<span>${m==='CN'?'人民币':'美元'}</span></div>`:''}<div class="radar-items">${items.map((s,i)=>rowHTML(s,now,{index:i+1,meta:byCode[s.code],...states.get(s),asset:assets.get(s.code)})).join('')}</div>`).join('');
+        return `<section class="radar-group ${side}"><div class="radar-group-head"><h3>${caption} <span>${ordered.length}</span></h3><small>${sub}</small></div>${lists}</section>`;
+      }).join('');
+    }
+    const ended=[],watch=[];
+    for(const s of rows)(['expired','stop_touched','take_touched','missed_entry'].includes(states.get(s).state)?ended:watch).push(s);
+    return section(watch,false)+(ended.length?`<div class="radar-ended"><div class="radar-archive-heading">失效与偏离 <span>${ended.length} 条历史记录</span></div>${section(ended,true)}</div>`:'');
+  }
+  const api={FILTER_KEY,normalizeFilters,readFilters,saveFilters,validSignal,selectSignals,signalLink,referencePlan,rowHTML,validateFeed,marketDate,dateWindow,snapshotTime,bounded,readView,expectedDay,asOfState,validatePriority,groupedRows};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(typeof document==='undefined')return;
   const $=id=>document.getElementById(id);
@@ -81,17 +163,45 @@
   side.append(button);
   const dialog=document.createElement('dialog');
   dialog.id='recentSignalsDialog';dialog.className='radar-dialog';dialog.setAttribute('aria-labelledby','recentSignalsTitle');
-  dialog.innerHTML=`<div class="dialog-head"><div><span class="eyebrow">A 股 · 美股 / 历史信号</span><h2 id="recentSignalsTitle">近期 S 买卖点</h2></div><button type="button" class="close-button" id="recentSignalsClose" aria-label="关闭近期 S 点">×</button></div><p class="note">每条记录保留确认当天的判断。买点为技术 S，胜率未经独立验证。卖点 S 表示当时的退出紧迫度。</p><p id="radarTodayCoverage" role="status"></p><div class="radar-update-tools"><button type="button" id="radarRefresh">检查新快照</button><span id="radarUpdateStatus" role="status"></span></div><section class="radar-settings" aria-labelledby="radarSettingsTitle"><div class="radar-settings-head"><h3 id="radarSettingsTitle">筛选设置</h3><button type="button" id="radarReset" class="text-button">恢复默认</button></div><div class="radar-controls"><label>查看模式<select id="radarScope"><option value="recent">当前日期窗口</option><option value="today">今日确认</option><option value="archive">历史档案</option></select></label><label>市场<select id="radarMarket" aria-label="S点市场"><option value="all">A 股 + 美股</option><option value="CN">A 股 / ETF</option><option value="US">美股 / ETF</option></select></label><label>方向<select id="radarSide" aria-label="S点方向"><option value="all">买点 + 卖点</option><option value="buy">只看买点</option><option value="sell">只看卖点</option></select></label><label>范围<select id="radarDays" aria-label="S点近期范围"><option value="5">5 天</option><option value="10" selected>10 天</option><option value="30">30 天</option></select></label></div><p class="note" id="radarSavedFilters">筛选会保存在此浏览器。</p><p class="radar-snapshot-scope">周期：日线 · 有效性：历史快照，未核验当前是否仍成立。分钟级与当前有效性检查请使用运行中的电脑端。</p></section><p class="note" id="radarCoverage"></p><div id="radarStatus" role="status"></div><div id="radarList"></div><p class="note">当前窗口按各市场当地今天倒推自然日（含今天），以信号确认日期筛选；未使用未经核验的交易日历。历史档案按各标的末 N 根日 K 回看。只查公开核心 A 股 / 美股目录，旧快照和新下载时间都不会把历史信号变成今日信号。</p>`;
+  dialog.innerHTML=`<header class="radar-heading dialog-head"><div><span class="radar-kicker"><i aria-hidden="true"></i> 收盘观察 · A 股 / 美股</span><h2 id="recentSignalsTitle">近期 S 买卖点</h2></div><button type="button" class="close-button" id="recentSignalsClose" aria-label="关闭近期 S 点">×</button></header>
+<div class="radar-direction" role="group" aria-label="切换观察方向">
+<button type="button" id="radarAll" data-direction="all"><span>全部</span><strong id="radarAllCount">—</strong></button>
+<button type="button" id="radarBuy" data-direction="buy"><span><i></i>买点</span><strong id="radarBuyCount">—</strong></button>
+<button type="button" id="radarSell" data-direction="sell"><span><i></i>卖点</span><strong id="radarSellCount">—</strong></button>
+</div>
+<div class="radar-toolbar"><div class="radar-mode-switch" role="group" aria-label="列表排序">
+<button type="button" id="radarLeader" aria-pressed="true">龙头优先</button><button type="button" id="radarCap" aria-pressed="false">按市值</button><button type="button" id="radarTime" aria-pressed="false">按时间</button></div>
+<button id="radarMotion" class="radar-motion" type="button" aria-pressed="true" title="切换排序动效">动效 开</button></div>
+<div class="radar-order-note" id="radarOrderNote">优先看近期、尚可复核的同行规模靠前标的。</div>
+<details class="radar-settings"><summary><strong>筛选与口径</strong><span id="radarFilterLine">近期 10 天 · A 股与美股</span></summary>
+<div class="radar-controls"><label>查看模式<select id="radarScope"><option value="recent">当前日期窗口</option><option value="today">今日确认</option><option value="archive">历史档案</option></select></label><label>市场<select id="radarMarket" aria-label="S点市场"><option value="all">A 股 + 美股</option><option value="CN">A 股 / ETF</option><option value="US">美股 / ETF</option></select></label><label>方向<select id="radarSide" aria-label="S点方向"><option value="all">买点 + 卖点</option><option value="buy">只看买点</option><option value="sell">只看卖点</option></select></label><label>范围<select id="radarDays" aria-label="S点近期范围"><option value="5">5 天</option><option value="10" selected>10 天</option><option value="30">30 天</option></select></label></div>
+<div class="radar-update-tools"><button type="button" id="radarReset" class="text-button">恢复默认</button><button type="button" id="radarRefresh">检查新快照</button></div>
+<p class="note" id="radarSavedFilters">筛选会保存在此浏览器。</p><p class="note" id="radarUpdateStatus" role="status"></p><p class="note" id="radarCoverage"></p>
+<p class="radar-snapshot-scope" id="radarScaleScope"></p><p class="radar-snapshot-scope">买点为技术 S，胜率未经独立验证。卖点 S 表示当时已有持仓的退出紧迫度。确认时间按市场当地自然日筛选；历史档案按各标的最后 N 根日线回看。所有状态截至已发布收盘。</p></details>
+<div class="radar-health"><i aria-hidden="true"></i><p id="radarTodayCoverage" role="status"></p></div>
+<div id="radarStatus" role="status"></div><div id="radarList"></div>`;
   document.body.append(dialog);
   let storage=null,savedRaw=null;try{storage=window.localStorage;savedRaw=storage?.getItem(FILTER_KEY)||null;}catch(_){}
   const savedFilters=readFilters(storage);let preserveMarket=!!savedRaw;
   $('radarScope').value=savedFilters.scope;$('radarMarket').value=savedFilters.market;$('radarSide').value=savedFilters.side;$('radarDays').value=String(savedFilters.days);
   let data=null,pending=null,pageContainer=null,catalogUsed=null,checking=false,lastVersionCheck=0;
-  function render() {
+  const view=readView(storage);
+  let priorityVersion=null,priorityRows=Object.create(null),priorityState='unavailable',priorityRequest=0,prioritySnapshot=null;
+  const motionQuery=window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  function saveView() {try{storage?.setItem(VIEW_KEY,JSON.stringify(view));}catch(_){}}
+  function controls() {
+    for(const [id,mode] of [['radarLeader','leader'],['radarCap','cap'],['radarTime','time']])$(id).setAttribute('aria-pressed',String(view.mode===mode));
+    const motion=$('radarMotion');motion.setAttribute('aria-pressed',String(view.motion&&!motionQuery?.matches));motion.textContent=motionQuery?.matches?'动效 关':view.motion?'动效 开':'动效 关';
+    motion.disabled=!!motionQuery?.matches;
+    motion.title=motion.disabled?'已遵循系统减少动态效果偏好':'切换排序动效';
+    for(const [id,value] of [['radarAll','all'],['radarBuy','buy'],['radarSell','sell']])$(id).setAttribute('aria-pressed',String($('radarSide').value===value));
+  }
+  function render(animate=false) {
+    controls();
     if(!data)return;
     const now=Date.now()/1000,market=$('radarMarket').value;
     const selection={market,scope:$('radarScope').value,side:$('radarSide').value,days:Number($('radarDays').value)};
-    const rows=selectSignals(data,selection,now),markets=market==='all'?['CN','US']:[market];
+    const rows=selectSignals(data,selection,now),allRows=selection.side==='all'?rows:selectSignals(data,{...selection,side:'all'},now),markets=market==='all'?['CN','US']:[market];
     let todayCovered=0,total=0;
     const coverage=markets.map(m=>{
       const c=data.coverage[m],w=dateWindow(m,selection.scope==='today'?1:selection.days,now);
@@ -116,8 +226,58 @@
     $('radarCoverage').textContent=coverage.join('。')+`。公开快照生成于 ${data.snapshot_at}。仅在发布新快照后更新行情与信号。`;
     const showCount=selection.scope!=='today'||(total>0&&todayCovered===total)||rows.length>0;
     $('radarStatus').textContent=showCount?`本快照中 ${rows.length} 个历史 S 点 · ${rows.filter(s=>s.side==='buy').length} 买点 / ${rows.filter(s=>s.side==='sell').length} 卖点`:'等待今日行情覆盖';
-    $('radarList').innerHTML=rows.length?rows.map(s=>rowHTML(s,now)).join(''):selection.scope==='today'&&(!total||todayCovered<total)?'<p class="empty">等所选市场的已收盘日线发布后，再查看今日 S 点。</p>':'<p class="empty">此快照在所选范围内没有匹配记录。可调整筛选或查看历史档案。</p>';
+    const countsKnown=selection.scope!=='today'||todayCovered===total;
+    function counter(matches){return matches.length||countsKnown?String(matches.length):'—';}
+    $('radarAllCount').textContent=counter(allRows);$('radarBuyCount').textContent=counter(allRows.filter(s=>s.side==='buy'));$('radarSellCount').textContent=counter(allRows.filter(s=>s.side==='sell'));
+    const scopeLabel=selection.scope==='archive'?'档案 '+selection.days+' 根':selection.scope==='today'?'今日确认':'近 '+selection.days+' 天';
+    $('radarFilterLine').textContent=scopeLabel+' · '+(marketNames[market]||'A 股与美股');
+    const available=priorityVersion===data.snapshot_at&&priorityState==='ready';
+    const modeNote={leader:'先看状态和近期确认，再看同市场、同行业样本市值位次。',time:'按状态分层，层内从最近确认开始。',cap:'分市场比较公司市值，优先展示可复核的信号。'};
+    $('radarOrderNote').textContent=view.mode==='time'||available?modeNote[view.mode]:priorityState==='loading'?'市值资料加载中，先按状态和确认时间展示。':'本快照暂无可用市值，先按状态和确认时间展示。';
+    const stamp=prioritySnapshot?.observed_at,scopeLabels=[...new Set(Object.values(priorityRows).map(x=>x.peer_scope).filter(Boolean))];
+    const observed=snapshotTime(stamp);
+    $('radarScaleScope').textContent='龙头按同市场行业样本的公司市值衡量。样本至少 3 家、覆盖至少一半同行、位次在前 1/4 且近 7 天有观察，才提高排序。先分状态，再看近 3 天确认与同行位次。位次刻度越靠右，表示在该同行样本内排名越靠前。市值按本币展示，与行业位次可有不同观察日；ETF 不参与公司排名。'+(scopeLabels.length?'覆盖口径：'+scopeLabels.join('、')+'。':'')+(observed?'资料采集于 '+marketDate(observed,'CN')+'。':'');
+    const list=$('radarList');
+    const old=new Map();
+    if(animate&&view.motion&&!motionQuery?.matches)for(const el of list.querySelectorAll?.('[data-radar-key]')||[])old.set(el.dataset.radarKey,el.getBoundingClientRect().top);
+    const byCode=available?priorityRows:{};
+    const uiMode=available?view.mode:'time';
+    list.innerHTML=rows.length?groupedRows(rows,{mode:uiMode,byCode,assets:new Map(catalogUsed.assets.map(a=>[a.code,a])),now}):selection.scope==='today'&&(!total||todayCovered<total)?'<p class="empty">等所选市场的已收盘日线发布后，再查看今日 S 点。</p>':'<p class="empty">此快照在所选范围内没有匹配记录。可调整筛选或查看历史档案。</p>';
+    if(animate&&view.motion&&!motionQuery?.matches)for(const el of list.querySelectorAll?.('[data-radar-key]')||[]){
+      const previous=old.get(el.dataset.radarKey),offset=previous==null?6:Math.max(-32,Math.min(32,previous-el.getBoundingClientRect().top));
+      el.animate?.([{transform:'translateY('+offset+'px)',opacity:.55},{transform:'translateY(0)',opacity:1}],{duration:190,easing:'ease-out'});
+    }
   }
+  const pins=document.querySelector('meta[name="pulse-signal-hashes"]')?.dataset||{};
+  function urlFor(path,version,digest){
+    const base=path+'?v='+encodeURIComponent(version);
+    return /^[a-f0-9]{64}$/.test(digest||'')?base+'&r='+digest:base;
+  }
+  async function readPinned(response,digest){
+    if(!/^[a-f0-9]{64}$/.test(digest||''))return response.json();
+    const bytes=await response.arrayBuffer();
+    const actual=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+    if(actual!==digest)throw Error('文件校验与当前页面不一致，请重新载入新版。');
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+  function loadPriority(catalog,retry) {
+    const version=catalog.snapshot_at;
+    if(priorityVersion===version&&!retry)return;
+    const request=++priorityRequest;
+    priorityVersion=version;priorityRows=Object.create(null);prioritySnapshot=null;
+    if(!catalog.assets.some(a=>a.kind==='stock')){priorityState='unavailable';return;}
+    priorityState='loading';
+    const url=urlFor('data/signal-priority.json',version,pins.priority),controller=new AbortController();
+    void bounded((async()=>{
+      const response=await fetch(url,{cache:retry?'reload':'no-cache',signal:controller.signal});if(!response.ok)throw Error('市值暂不可用');
+      const value=await readPinned(response,pins.priority),index=validatePriority(value,catalog);
+      if(request!==priorityRequest)return;
+      priorityRows=index;priorityState=Object.keys(index).length?'ready':'unavailable';prioritySnapshot=value;window.PulseOffline?.remember(url);
+    })(),16000,'市值读取超时').catch(()=>{if(request===priorityRequest)priorityState='unavailable';}).finally(()=>{
+      controller.abort();if(request===priorityRequest&&data?.snapshot_at===version)render();
+    });
+  }
+
   async function load(retry=false) {
     if(data&&!retry){render();return;}
     if(pending)return pending;
@@ -128,9 +288,10 @@
         const version=catalog?.snapshot_at;
         if(!snapshotTime(version))throw new Error('主图行情目录尚未就绪，请重试或重新载入页面。');
         if(data&&data.snapshot_at!==version){data=null;catalogUsed=null;$('radarTodayCoverage').textContent='';$('radarList').innerHTML='';$('radarCoverage').textContent='';}
-        const url='data/signals/recent.json?v='+encodeURIComponent(version),controller=new AbortController();
+        loadPriority(catalog,retry);
+        const url=urlFor('data/signals/recent.json',version,pins.feed),controller=new AbortController();
         let body;
-        try{body=await bounded((async()=>{const response=await fetch(url,{cache:retry?'reload':'no-cache',signal:controller.signal});if(!response.ok)throw new Error('近期信号汇总暂不可用；联网后可重试。');return response.json();})(),20000,'信号汇总读取超时，可重试当前快照。');}finally{controller.abort();}
+        try{body=await bounded((async()=>{const response=await fetch(url,{cache:retry?'reload':'no-cache',signal:controller.signal});if(!response.ok)throw new Error('近期信号汇总暂不可用；联网后可重试。');return readPinned(response,pins.feed);})(),20000,'信号汇总读取超时，可重试当前快照。');}finally{controller.abort();}
         const result=validateFeed(body,catalog);
         catalogUsed=catalog;data=result;lastVersionCheck=Date.now();window.PulseOffline?.remember(url);render();
       } catch(error) {
@@ -178,7 +339,12 @@
   document.addEventListener?.('visibilitychange',()=>{if(visiblePage()&&data&&!pending&&!checking)void checkUpdates();});
   if(typeof setInterval==='function')setInterval(()=>{if(visiblePage()&&!pending&&!checking)void checkUpdates();},60000);
   $('recentSignalsClose').addEventListener('click',()=>{if(pageContainer)window.dispatchEvent(new CustomEvent('pulse:navigate',{detail:{page:'chart'}}));else dialog.close();});
-  function rememberFilters(){preserveMarket=true;const saved=saveFilters(storage,{scope:$('radarScope').value,market:$('radarMarket').value,side:$('radarSide').value,days:Number($('radarDays').value)});$('radarSavedFilters').textContent=saved?'已保存筛选；下次打开会继续使用。':'当前筛选已应用；浏览器存储不可用，关闭后可能无法保留。';render();}
+  function rememberFilters(animate){preserveMarket=true;const saved=saveFilters(storage,{scope:$('radarScope').value,market:$('radarMarket').value,side:$('radarSide').value,days:Number($('radarDays').value)});$('radarSavedFilters').textContent=saved?'已保存筛选；下次打开会继续使用。':'当前筛选已应用；浏览器存储不可用，关闭后可能无法保留。';render(!!animate);}
   ['radarScope','radarMarket','radarSide','radarDays'].forEach(id=>$(id).addEventListener('change',rememberFilters));
-  $('radarReset').addEventListener('click',()=>{$('radarScope').value='recent';$('radarMarket').value='all';$('radarSide').value='all';$('radarDays').value='10';rememberFilters();});
+  for(const [id,mode] of [['radarLeader','leader'],['radarCap','cap'],['radarTime','time']])$(id).addEventListener('click',()=>{if(view.mode!==mode){view.mode=mode;saveView();render(true);}});
+  $('radarMotion').addEventListener('click',()=>{if(motionQuery?.matches)return;view.motion=!view.motion;saveView();controls();});
+  motionQuery?.addEventListener?.('change',controls);
+  for(const [id,value] of [['radarAll','all'],['radarBuy','buy'],['radarSell','sell']])$(id).addEventListener('click',()=>{$('radarSide').value=value;rememberFilters(true);});
+  controls();
+  $('radarReset').addEventListener('click',()=>{view.mode='leader';view.motion=true;saveView();$('radarScope').value='recent';$('radarMarket').value='all';$('radarSide').value='all';$('radarDays').value='10';rememberFilters();});
 }());
