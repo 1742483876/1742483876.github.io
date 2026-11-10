@@ -1,5 +1,5 @@
 'use strict';
-const BUILD='3f6bbd7b19e7e660';
+const BUILD='feac71a477ad3bc6';
 const SCOPE=new URL(self.registration.scope);
 const PREFIX='market-pulse-mobile:'+SCOPE.pathname+':';
 const SHELL=PREFIX+'shell:'+BUILD, DATA=PREFIX+'data:v2';
