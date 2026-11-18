@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- ian-vault-v1 -->
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -63,6 +64,32 @@
     }
     .lock-error { color: #f0a090; font-size: 0.85rem; min-height: 1.2em; text-align: center; }
     .lock-hint { margin-top: 16px; font-size: 0.78rem; color: rgba(239,232,220,0.42); }
+    .lock-remember {
+      font-size: 0.82rem; color: rgba(239,232,220,0.62);
+      display: flex; gap: 6px; align-items: center; justify-content: center;
+    }
+    .lock-btn:disabled { opacity: 0.6; }
+    .lock-public { margin-top: 34px; width: min(340px, 100%); }
+    .lock-public-title {
+      font-size: 0.74rem; letter-spacing: 0.14em; text-transform: uppercase;
+      color: rgba(239,232,220,0.45); text-align: center; margin-bottom: 10px;
+    }
+    .lock-public a {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+      padding: 10px 2px; border-top: 1px solid rgba(239,232,220,0.12);
+      color: #efe8dc; text-decoration: none; font-size: 0.92rem;
+    }
+    .lock-public a:last-child { border-bottom: 1px solid rgba(239,232,220,0.12); }
+    .lock-public a span { font-size: 0.76rem; color: rgba(239,232,220,0.5); white-space: nowrap; }
+    .lock-public a:hover { color: #e8a06a; }
+    .lock-screen { overflow-y: auto; }
+    .lock-screen > .lock-brand { margin-top: auto; }
+    .lock-screen > .lock-public { margin-bottom: auto; }
+    .pub-tag { background: rgba(94,110,102,0.14) !important; color: var(--mute) !important; }
+    .lock-out {
+      border: 1px solid var(--line); background: var(--panel); color: var(--mute);
+      font-size: 0.8rem; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+    }
 
     .app.hidden { display: none; }
     .top {
@@ -149,17 +176,27 @@
     <div class="lock-brand">Ian<br /><em>Home</em></div>
     <div class="lock-sub">输入密码进入</div>
     <div class="lock-form">
-      <input class="lock-input" type="password" id="lockInput" placeholder="••••" inputmode="numeric" autocomplete="off" />
+      <input class="lock-input" type="password" id="lockInput" placeholder="••••" autocomplete="current-password" />
+      <label class="lock-remember"><input type="checkbox" id="lockRemember" checked /> 本设备记住 30 天</label>
       <div class="lock-error" id="lockError"></div>
       <button class="lock-btn" type="button" id="lockBtn">进入</button>
     </div>
-    <div class="lock-hint">验证后 30 天内免登录</div>
+    <div class="lock-hint">私密内容均为整页加密，解锁后笔记页自动打开</div>
+    <nav class="lock-public" aria-label="公开站点">
+      <div class="lock-public-title">公开站点 · 无需密码</div>
+      <a href="/market-indicator-academy/">指标学堂 <span>公开</span></a>
+      <a href="/llm-interview-academy/">大模型面试学堂 <span>公开</span></a>
+      <a href="/market-pulse/">Market Pulse <span>公开</span></a>
+      <a href="/my-notes/market-reviews/">交易日题材复盘 <span>公开</span></a>
+      <a href="/xiaobai-wealth/">小白财富 <span>需密码</span></a>
+    </nav>
   </div>
 
   <div class="app hidden" id="app">
     <div class="top">
       <div class="top-row">
         <div class="brand">Ian <em>Home</em></div>
+        <button class="lock-out" type="button" id="lockOut">锁定</button>
       </div>
       <input class="search" type="search" id="searchInput" placeholder="搜索标题或内容…" autocomplete="off" />
     </div>
@@ -178,14 +215,65 @@
 
     <div class="wrap">
       <div id="content"></div>
+      <h2 class="group-title">公开站点</h2>
+      <div class="list" id="publicList"></div>
       <p class="foot">手机可收藏本页 · 内容更新后刷新即可</p>
     </div>
   </div>
 
   <script>
-  const AUTH_KEY = 'ian_home_auth_v1';
-  const VALID_DAYS = 30;
-  const PWD_HASH = '17f13a'; // 3250
+  const ITEMS_ENC = {"v":1,"salt":"wKs1AZeZLVlepZji+fBLtQ==","iter":600000,"iv":"suxnV3xdfYuoHIMI","ct":"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"};
+
+const IanVault = (() => {
+  const STORE = 'ian_vault_key_v1';
+  const DAYS = 30;
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const b64 = (u8) => btoa(String.fromCharCode(...u8));
+  async function derive(pwd, salt, iter) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pwd), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64(salt), iterations: iter }, base, 256);
+    return new Uint8Array(bits);
+  }
+  async function decrypt(raw, p) {
+    const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(p.iv) }, key, unb64(p.ct));
+    return new TextDecoder().decode(pt);
+  }
+  function load(salt) {
+    for (const st of [sessionStorage, localStorage]) {
+      try {
+        const d = JSON.parse(st.getItem(STORE) || 'null');
+        if (d && d.s === salt && (!d.exp || d.exp > Date.now())) return unb64(d.k);
+      } catch (e) {}
+    }
+    return null;
+  }
+  function save(salt, raw, remember) {
+    const k = b64(raw);
+    try { sessionStorage.setItem(STORE, JSON.stringify({ s: salt, k })); } catch (e) {}
+    try {
+      if (remember) localStorage.setItem(STORE, JSON.stringify({ s: salt, k, exp: Date.now() + DAYS * 864e5 }));
+      else localStorage.removeItem(STORE);
+    } catch (e) {}
+  }
+  function forget() {
+    try { sessionStorage.removeItem(STORE); localStorage.removeItem(STORE); } catch (e) {}
+  }
+  // 用已保存的 key 尝试解密；失败返回 null
+  async function tryStored(p) {
+    const raw = load(p.salt);
+    if (!raw) return null;
+    try { return await decrypt(raw, p); } catch (e) { forget(); return null; }
+  }
+  // 用密码解密；成功则按 remember 保存派生 key（不保存明文密码）
+  async function withPassword(p, pwd, remember) {
+    const raw = await derive(pwd, p.salt, p.iter);
+    const text = await decrypt(raw, p);
+    save(p.salt, raw, remember);
+    return text;
+  }
+  return { tryStored, withPassword, forget };
+})();
 
   const MODULES = {
     work:  { label: '工作', color: '#c45a2c' },
@@ -193,170 +281,41 @@
     life:  { label: '生活', color: '#2f5c78' },
     money: { label: '理财', color: '#9e7a30' },
   };
-
-  // module: work | study | life | money
-  const ITEMS = [
-    {
-      id: '1t',
-      title: '1T 训练手册（脱敏教学版）',
-      desc: '预训练 / 中训练入门、各 topic 地图、训练万亿参数模型的步骤与常见坑。',
-      module: 'work',
-      date: '2026-09-10',
-      url: '/1t-playbook/',
-    },
-    {
-      id: 'invest',
-      title: '投资理财指南 — 美股开户 & 券商入金',
-      desc: '美股开户买 SGOV + 盈立证券入金攻略。',
-      module: 'money',
-      date: '2026-03-23',
-      url: '/my-notes/投资理财指南.html',
-    },
-    {
-      id: 'quant',
-      title: '量化交易全攻略 — 入门·策略·实盘',
-      desc: '量化入门 + 策略详解 + 选股大盘。',
-      module: 'money',
-      date: '2026-04-07',
-      url: '/my-notes/量化交易全攻略.html',
-    },
-    {
-      id: 'trip13',
-      title: '请3休13 — 中秋国庆 13 天旅游攻略',
-      desc: '玩 8–10 天，留 3 天在家躺。六选一：南疆帕米尔 / 乌兹别克斯坦 / 西藏林芝 / 青甘环线 / 雨崩 / 巴厘岛，全部控在 1.2 万以内。',
-      module: 'life',
-      date: '2026-09-10',
-      url: '/my-notes/请3休13旅游攻略.html',
-    },
-    {
-      id: 'travel-set',
-      title: '旅行出行合集 — 规划·行程·指南',
-      desc: '2026 旅行规划、周末游、潜水与出行指南。',
-      module: 'life',
-      date: '2026-04-05',
-      url: '/my-notes/旅行出行合集.html',
-    },
-    {
-      id: 'bohol',
-      title: '薄荷岛攻略 — 五一菲律宾跳岛',
-      desc: '墨宝沙丁鱼、鲸鲨、锡基霍尔、薄荷岛深潜。',
-      module: 'life',
-      date: '2026-05-01',
-      url: '/my-notes/薄荷岛攻略.html',
-    },
-    {
-      id: 'islands',
-      title: '五一海岛攻略 — 薄荷岛 & 巴厘岛',
-      desc: '两套海岛方案对比。',
-      module: 'life',
-      date: '2026-04-18',
-      url: '/my-notes/五一海岛攻略.html',
-    },
-    {
-      id: 'fitness',
-      title: '健身完全手册 — 训练·饮食·颜值',
-      desc: '分化训练、减脂饮食与护肤。',
-      module: 'life',
-      date: '2026-03-30',
-      url: '/my-notes/健身完全手册.html',
-    },
-    {
-      id: 'media',
-      title: '影音收藏 — 视频 & 音乐',
-      desc: '纪录片、电影与歌单。',
-      module: 'life',
-      date: '2026-03-30',
-      url: '/my-notes/影音收藏.html',
-    },
-    {
-      id: 'gadgets',
-      title: '电子产品资产管理',
-      desc: '日均/次均成本与吃灰检测。',
-      module: 'life',
-      date: '2026-03-30',
-      url: '/my-notes/电子产品记账.html',
-    },
-    {
-      id: 'cars',
-      title: '汽车品牌速查手册',
-      desc: '从 BBA 到超跑的品牌与车系速记。',
-      module: 'life',
-      date: '2026-03-30',
-      url: '/my-notes/汽车品牌科普.html',
-    },
-    {
-      id: 'dream',
-      title: '梦境日记',
-      desc: '星空主题梦境记录。',
-      module: 'life',
-      date: '2026-03-30',
-      url: '/my-notes/梦境日记.html',
-    },
-    {
-      id: 'ai-chip',
-      title: 'AI 算力四大赛道龙头作战图',
-      desc: '芯片·存储·光模块·算力租赁主线梳理。',
-      module: 'study',
-      date: '2026-06-03',
-      url: '/my-notes/AI算力四大赛道龙头.html',
-    },
-    {
-      id: 'tech',
-      title: '科技学习 — 大模型全景 & 数据工程',
-      desc: '多模态、数据工程与面试指南。',
-      module: 'study',
-      date: '2026-04-07',
-      url: '/my-notes/科技学习.html',
-    },
-    {
-      id: 'train',
-      title: '大模型训练全景 — 预训练·后训练·架构',
-      desc: '从预训练到 RLHF 的流程拆解。',
-      module: 'study',
-      date: '2026-04-29',
-      url: '/my-notes/大模型训练全景.html',
-    },
-    {
-      id: 'oss-llm',
-      title: '开源大模型全景对比',
-      desc: '主流开源模型横评。',
-      module: 'study',
-      date: '2026-04-27',
-      url: '/my-notes/开源大模型全景对比.html',
-    },
+  const PUBLIC_SITES = [
+    { title: '指标学堂', desc: '市场指标入门与互动练习。', url: '/market-indicator-academy/', tag: '公开' },
+    { title: '大模型面试学堂', desc: '大模型面试知识点与练习。', url: '/llm-interview-academy/', tag: '公开' },
+    { title: 'Market Pulse', desc: '每日收盘快照。', url: '/market-pulse/', tag: '公开' },
+    { title: '交易日题材复盘', desc: 'A 股 / 美股每日题材复盘归档。', url: '/my-notes/market-reviews/', tag: '公开' },
+    { title: '小白财富', desc: '财富规划（站点自带加密）。', url: '/xiaobai-wealth/', tag: '需密码' },
   ];
+
+  // module: work | study | life | money；解锁后由 ITEMS_ENC 解密得到
+  let ITEMS = [];
 
   let view = 'module'; // module | date
   let mod = 'all';
   let q = '';
 
-  function hashPwd(s) {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-    return Math.abs(h).toString(16).slice(0, 6);
-  }
-  function checkAuth() {
-    try {
-      const raw = localStorage.getItem(AUTH_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      if (data.hash !== PWD_HASH) return false;
-      return Date.now() - data.ts < VALID_DAYS * 24 * 60 * 60 * 1000;
-    } catch { return false; }
-  }
-  function unlock() {
-    localStorage.setItem(AUTH_KEY, JSON.stringify({ hash: PWD_HASH, ts: Date.now() }));
+  function showApp(items) {
+    ITEMS = items;
     document.getElementById('lockScreen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     render();
   }
-  function verifyPassword() {
+  async function verifyPassword() {
     const input = document.getElementById('lockInput');
     const error = document.getElementById('lockError');
-    const pwd = input.value.trim();
+    const btn = document.getElementById('lockBtn');
+    const pwd = input.value;
     if (!pwd) { error.textContent = '请输入密码'; return; }
-    if (hashPwd(pwd) === PWD_HASH) { error.textContent = ''; unlock(); }
-    else { error.textContent = '密码错误'; input.value = ''; input.focus(); }
+    btn.disabled = true; error.textContent = '解密中…';
+    try {
+      const text = await IanVault.withPassword(ITEMS_ENC, pwd, document.getElementById('lockRemember').checked);
+      error.textContent = '';
+      showApp(JSON.parse(text));
+    } catch (e) {
+      error.textContent = '密码错误'; input.value = ''; input.focus();
+    } finally { btn.disabled = false; }
   }
 
   function filtered() {
@@ -368,6 +327,7 @@
     });
   }
 
+  const escHtml = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function itemCard(it) {
     const m = MODULES[it.module];
     return `<a class="item" href="${it.url}">
@@ -440,7 +400,16 @@
     render();
   });
 
-  if (checkAuth()) unlock();
+  document.getElementById('lockOut').addEventListener('click', () => { IanVault.forget(); location.reload(); });
+  document.getElementById('publicList').innerHTML = PUBLIC_SITES.map((it) => `<a class="item" href="${it.url}">
+      <div class="item-date">↗</div>
+      <div>
+        <div class="item-title">${escHtml(it.title)}</div>
+        <div class="item-desc">${escHtml(it.desc)}</div>
+        <span class="item-tag pub-tag">${it.tag}</span>
+      </div>
+    </a>`).join('');
+  IanVault.tryStored(ITEMS_ENC).then((text) => { if (text) showApp(JSON.parse(text)); });
   </script>
 </body>
 </html>
