@@ -1,6 +1,6 @@
 'use strict';
 (function(){
-  const BUILD='e093dba71e266426';
+  const BUILD='695b3af75278ec0a';
   const PAGES={chart:'行情',signals:'近期 S 点',sectors:'板块与公司',temperature:'市场温度',research:'策略研究',help:'使用说明'};
   function route(value){const key=String(value||'').replace(/^#/,'');return Object.hasOwn(PAGES,key)?key:'chart';}
   function buildState(current,remote){if(!/^[a-f0-9]{16}$/.test(remote||''))return 'unknown';return current===remote?'current':'available';}
